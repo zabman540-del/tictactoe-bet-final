@@ -32,18 +32,18 @@ def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def open_app_keyboard(api_base_url: str) -> ReplyKeyboardMarkup:
+def open_app_keyboard(api_base_url: str) -> InlineKeyboardMarkup:
     """
-    The bot's main interface now: a single button that launches the
-    full Mini App (wallet, deposit, withdraw, play, friends, history,
-    profile — everything). api_base_url must be the API's public
-    https URL, same requirement as the game board WebApp buttons.
+    A single button that launches the full Mini App (wallet, deposit,
+    withdraw, play, friends, history, profile). It MUST be an inline
+    button: Mini Apps opened from a reply-keyboard button get no
+    initData from Telegram, so every API call would fail login.
+    api_base_url must be the API's public https URL.
     """
     url = f"{api_base_url}/app-ui/"
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🚀 Open Nova Bet", web_app=WebAppInfo(url=url))]],
-        resize_keyboard=True,
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Open Nova Bet", web_app=WebAppInfo(url=url))]
+    ])
 
 
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
