@@ -336,7 +336,8 @@ async function renderBoard(matchId) {
     const dbg = document.getElementById("board-debug-line");
     if (dbg) {
       const t = (v) => String(v || "").slice(-4);
-      dbg.textContent = `you=${s.you_are} turn=${s.current_turn} status=${s.status} | me …${t(s.you_id)} X …${t(s.player_x_id)} O …${t(s.player_o_id)}`;
+      const extra = s.you_are === undefined ? ` | KEYS: ${Object.keys(s).join(",")}` : "";
+      dbg.textContent = `you=${s.you_are} turn=${s.current_turn} status=${s.status} | me …${t(s.you_id)} X …${t(s.player_x_id)} O …${t(s.player_o_id)}${extra}`;
     }
     turnLabel.textContent = s.status !== "active" ? "Game over" : myTurn ? "Your turn" : "Opponent's turn";
     turnLabel.classList.toggle("your-turn", myTurn);
