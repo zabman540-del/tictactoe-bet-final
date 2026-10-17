@@ -40,7 +40,7 @@ def _run(fn, db):
 @router.get("/rules")
 def rules(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    return {"mines": hg.mines_rules(),
+    return {"mines": hg.mines_rules(), "chicken": hg.chicken_rules(),
             "dice": {"enabled": hg.DICE_ENABLED, "house_edge_percent": str(hg.HOUSE_EDGE * 100), "min_bet": str(hg.MIN_BET),
                      "max_bet": str(hg.MAX_BET), "max_payout": str(hg.MAX_PAYOUT),
                      "min_chance": hg.DICE_MIN_CHANCE, "max_chance": hg.DICE_MAX_CHANCE}}
@@ -83,6 +83,35 @@ def dice_quote(body: DiceQuote):
 def dice_roll(body: DiceRoll, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
     user = _webapp_user(db, x_telegram_init_data)
     return _run(lambda: hg.dice_roll(db, user.internal_id, body.bet, body.direction, body.target), db)
+
+
+@router.get("/chicken/active")
+def chicken_active(response: Response, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
+    user = _webapp_user(db, x_telegram_init_data)
+    response.headers["Cache-Control"] = "no-store"
+    return {"round": hg.chicken_active(db, user.internal_id)}
+
+
+class ChickenStart(BaseModel):
+    bet: str
+
+
+@router.post("/chicken/start")
+def chicken_start(body: ChickenStart, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
+    user = _webapp_user(db, x_telegram_init_data)
+    return _run(lambda: hg.chicken_start(db, user.internal_id, body.bet), db)
+
+
+@router.post("/chicken/step")
+def chicken_step(body: MinesCash, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
+    user = _webapp_user(db, x_telegram_init_data)
+    return _run(lambda: hg.chicken_step(db, user.internal_id, body.round_id), db)
+
+
+@router.post("/chicken/cashout")
+def chicken_cashout(body: MinesCash, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
+    user = _webapp_user(db, x_telegram_init_data)
+    return _run(lambda: hg.chicken_cashout(db, user.internal_id, body.round_id), db)
 
 
 @router.get("/history")

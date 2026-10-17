@@ -33,7 +33,7 @@ async function apiPostJson(path, data) {
     method: "POST", headers: authHeaders(true), body: JSON.stringify(data),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail || `Error ${res.status}`);
+  if (!res.ok) throw new Error((body.detail || `Error ${res.status}`) + (res.status === 405 || res.status === 404 ? ` [POST ${path} ${res.status}]` : ""));
   return body;
 }
 
@@ -176,7 +176,7 @@ async function renderHome() {
 async function renderPlayChooseGame() {
   screenEl.innerHTML = `<div class="spinner"></div>`;
   const data = await apiGet("/webapp/matchmaking/open").catch(() => ({ open_matches: [] }));
-  const open = data.open_matches;
+  const open = data.open_matches.filter((m) => m.game_type !== "checkers");
 
   screenEl.innerHTML = `
     ${open.length ? `
@@ -196,7 +196,7 @@ async function renderPlayChooseGame() {
     <div class="card">
       <h2>🎮 Or start a new game</h2>
       <button class="btn" id="play-ttt">✕⭕ Tic-Tac-Toe</button>
-      <button class="btn secondary" id="play-checkers">🔴 Checkers</button>
+      <button class="btn secondary" id="play-chicken">🐔 Chicken Road</button>
       <button class="btn secondary" id="play-rps">✊✋✌️ Rock Paper Scissors</button>
       <button class="btn secondary" id="play-mines">💣 Mines</button>
       <button class="btn secondary" id="play-dice" disabled style="opacity:.55">🎲 Dice — coming soon</button>
@@ -204,9 +204,9 @@ async function renderPlayChooseGame() {
   `;
   document.getElementById("play-mines").addEventListener("click", renderMines);
   document.getElementById("play-rps").addEventListener("click", renderRps);
+  document.getElementById("play-chicken").addEventListener("click", renderChicken);
   
   document.getElementById("play-ttt").addEventListener("click", () => renderPlayChooseStake("tictactoe"));
-  document.getElementById("play-checkers").addEventListener("click", () => renderPlayChooseStake("checkers"));
 
   screenEl.querySelectorAll("[data-join-open]").forEach((btn) => {
     btn.addEventListener("click", () => joinOpenMatch(btn.dataset.joinOpen, btn.dataset.stake, btn.dataset.game));
@@ -581,7 +581,6 @@ function renderInviteStakePicker(friendId) {
       <h2>🎯 Invite to play — choose game & stake</h2>
       <div class="tabs">
         <button class="tab-btn active" data-game="tictactoe">✕⭕ Tic-Tac-Toe</button>
-        <button class="tab-btn" data-game="checkers">🔴 Checkers</button>
       </div>
       <div class="stake-grid">
         ${STAKE_TIERS.map((s) => `<button class="stake-btn" data-stake="${s}">${s} ETB</button>`).join("")}
@@ -1007,7 +1006,7 @@ async function renderRps() {
       apiGet("/webapp/friends").catch(() => ({ friends: [] })),
     ]);
   } catch (e) { tg.showAlert(e.message); return renderPlayChooseGame(); }
-  let stake = rules.stakes[0];
+  let stake = "10";
   screenEl.innerHTML = `
     <div class="card">
       <h2>✊✋✌️ Rock Paper Scissors • 1v1</h2>
@@ -1024,7 +1023,9 @@ async function renderRps() {
     ${lobby.mine ? `<div class="card"><h2>Your active game</h2><button class="btn" id="rps-resume">Resume</button></div>` : ""}
     <div class="card">
       <h2>⚔️ Challenge a player</h2>
-      <div class="stake-grid">${rules.stakes.map((x) => `<button class="stake-btn" data-rs="${x}">${x} ETB</button>`).join("")}</div>
+      <div class="field"><label>Your stake (${rules.min_stake}–${rules.max_stake} ETB)</label>
+        <input id="rps-stake" type="number" inputmode="decimal" value="10" /></div>
+      <div class="stake-grid">${["10", "20", "50", "100", "500"].map((x) => `<button class="stake-btn" data-rs="${x}">${x}</button>`).join("")}</div>
       <div class="error-text" id="rps-err"></div>
       <button class="btn" id="rps-open">Open challenge (anyone can join)</button>
       ${friends.friends.length ? `<p class="center-note" style="text-align:left;margin-top:10px">Or challenge a friend directly:</p>
@@ -1037,12 +1038,12 @@ async function renderRps() {
         <button class="btn" style="margin:0;width:auto;padding:8px 14px" data-rj="${g.game_id}">Join</button></div>`).join("")}</div>` : ""}
     <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
   bindBack();
-  const hl = () => screenEl.querySelectorAll("[data-rs]").forEach((b) => { b.style.outline = b.dataset.rs === stake ? "2px solid #4f7cff" : "none"; });
-  screenEl.querySelectorAll("[data-rs]").forEach((b) => b.addEventListener("click", () => { stake = b.dataset.rs; hl(); }));
-  hl();
+  const stakeInput = document.getElementById("rps-stake");
+  screenEl.querySelectorAll("[data-rs]").forEach((b) => b.addEventListener("click", () => { stakeInput.value = b.dataset.rs; }));
   const errEl = document.getElementById("rps-err");
   const create = async (invite) => {
     try {
+      stake = stakeInput.value.trim();
       const r = await apiPostJson("/webapp/rps/create", { stake, invite_user_id: invite || null });
       if (invite && r.notified === false) tg.showAlert("Challenge created, but Telegram couldn't deliver it. Ask your friend to open Nova Bet and join from the list.");
       window.location.hash = `#/rps/${r.game_id}`;
@@ -1119,4 +1120,239 @@ async function renderRpsGame(gameId) {
       if (["completed", "draw", "cancelled", "expired"].includes(s.status)) stopPolling();
     } catch (e) {}
   }, 2000);
+}
+
+
+/* ---------------- Chicken Road ---------------- */
+/* Side-scrolling road: the chicken crosses lanes left to right. Each lane
+ * ahead shows its multiplier coin. A trap = a car sweeping down that lane. */
+
+const CR = { W: 360, H: 300, LW: 90, N: 10, GROUND: 262 };
+const crLaneX = (i) => i * CR.LW;                 // left edge of lane i
+const crCenterX = (i) => i * CR.LW + CR.LW / 2;   // centre of lane i
+const crCam = (step) => Math.max(0, crCenterX(step) - 105);
+
+function crChicken() {
+  return `<g class="cr-hop">
+    <path d="M-9 -24 L-9 -2 M9 -24 L9 -2" stroke="#f5a21a" stroke-width="5" stroke-linecap="round"/>
+    <path d="M-16 -1 L-4 -1 M2 -1 L14 -1" stroke="#f5a21a" stroke-width="4" stroke-linecap="round"/>
+    <path d="M-26 -52 Q-48 -62 -40 -84 Q-24 -78 -18 -60Z" fill="#ececec"/>
+    <ellipse cx="0" cy="-46" rx="30" ry="28" fill="#fff" stroke="#e3e3e3" stroke-width="2"/>
+    <ellipse cx="-7" cy="-43" rx="15" ry="11" fill="#f3f3f3" stroke="#ddd"/>
+    <circle cx="15" cy="-80" r="18" fill="#fff" stroke="#e3e3e3" stroke-width="2"/>
+    <circle cx="6" cy="-97" r="6" fill="#e5322d"/><circle cx="15" cy="-99" r="7" fill="#e5322d"/><circle cx="24" cy="-96" r="6" fill="#e5322d"/>
+    <path d="M30 -80 L46 -75 L30 -69Z" fill="#ff9f1a"/>
+    <path d="M30 -68 q4 12 -2 14 q-6 -6 2 -14z" fill="#e5322d"/>
+    <circle cx="22" cy="-84" r="3.6" fill="#222"/><circle cx="23" cy="-85" r="1.2" fill="#fff"/>
+  </g>`;
+}
+
+function crCar(color) {
+  // original top-down cartoon car, drives down a lane
+  return `<g><rect x="-22" y="-44" width="44" height="88" rx="14" fill="${color}" stroke="rgba(0,0,0,.35)" stroke-width="2"/>
+    <rect x="-16" y="-24" width="32" height="20" rx="6" fill="#bfe6ff"/><rect x="-16" y="10" width="32" height="14" rx="5" fill="#9fcff0"/>
+    <circle cx="-13" cy="38" r="4" fill="#fff6a8"/><circle cx="13" cy="38" r="4" fill="#fff6a8"/>
+    <rect x="-24" y="-30" width="4" height="14" rx="2" fill="#222"/><rect x="20" y="-30" width="4" height="14" rx="2" fill="#222"/>
+    <rect x="-24" y="16" width="4" height="14" rx="2" fill="#222"/><rect x="20" y="16" width="4" height="14" rx="2" fill="#222"/></g>`;
+}
+
+function crSceneSVG(rules) {
+  const N = CR.N, LW = CR.LW, G = CR.GROUND;
+  let lanes = "";
+  for (let i = 0; i <= N + 1; i++) {
+    const x = crLaneX(i);
+    if (i === 0) {
+      lanes += `<rect x="${x - 200}" y="60" width="${LW + 200}" height="240" fill="#5b8f4a"/><rect x="${x - 200}" y="60" width="${LW + 200}" height="14" fill="#7bb85f"/>
+        <text x="${x + 45}" y="150" text-anchor="middle" font-size="12" font-weight="800" fill="#e8ffd9">START</text>`;
+      continue;
+    }
+    if (i === N + 1) {
+      lanes += `<rect x="${x}" y="60" width="${LW + 400}" height="240" fill="#5b8f4a"/><rect x="${x}" y="60" width="${LW + 400}" height="14" fill="#7bb85f"/>
+        <path d="M${x + 14} 262 L${x + 14} 130 Q${x + 45} 70 ${x + 76} 130 L${x + 76} 262Z" fill="#2c3156" stroke="#8d96d8" stroke-width="3"/>
+        <ellipse cx="${x + 45}" cy="200" rx="22" ry="28" fill="#ffd23f" stroke="#c48a00" stroke-width="3"/><text x="${x + 45}" y="206" text-anchor="middle" font-size="22">🥚</text>`;
+      continue;
+    }
+    lanes += `<rect id="cr-lane-${i}" x="${x}" y="60" width="${LW}" height="240" fill="${i % 2 ? "#363b63" : "#3d426d"}"/>
+      <line x1="${x + LW}" y1="64" x2="${x + LW}" y2="298" stroke="#c9cdf2" stroke-width="3" stroke-dasharray="14 12" opacity=".55"/>
+      <g id="cr-grate-${i}"><path d="M${x + 22} 262 Q${x + 45} 218 ${x + 68} 262Z" fill="#1c1f3a" stroke="#555b8f" stroke-width="2"/>
+        <path d="M${x + 33} 262 V240 M${x + 45} 262 V232 M${x + 57} 262 V240" stroke="#555b8f" stroke-width="2"/></g>
+      <g id="cr-coin-${i}" transform="translate(${x + 45},130)">
+        <circle id="cr-coinc-${i}" r="30" fill="#4a5bff" stroke="#c9d0ff" stroke-width="4"/>
+        <text id="cr-coint-${i}" y="6" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">×${Number(rules.steps[i - 1].multiplier).toFixed(2)}</text></g>`;
+  }
+  let bricks = "";
+  for (let r = 0; r < 4; r++) for (let c = -2; c < (N + 4) * 2; c++) {
+    bricks += `<rect x="${c * 45 + (r % 2 ? 22 : 0)}" y="${r * 15}" width="43" height="13" rx="2" fill="${(r + c) % 3 ? "#262a4a" : "#2c3156"}"/>`;
+  }
+  return `<svg id="cr-svg" viewBox="0 0 ${CR.W} ${CR.H}" width="100%" style="display:block;border-radius:14px;background:#1a1d38;overflow:hidden">
+    <g id="cr-world" style="transition:transform .55s ease-in-out">
+      ${bricks}<rect y="58" x="-200" width="${(N + 3) * LW + 400}" height="4" fill="#12142a"/>
+      ${lanes}
+      <g id="cr-carl"></g><g id="cr-coins"></g>
+      <g id="cr-ck" style="transition:transform .55s cubic-bezier(.3,1.3,.5,1)"><ellipse cx="0" cy="2" rx="24" ry="6" fill="rgba(0,0,0,.35)"/><g transform="scale(.82)">${crChicken()}</g></g>
+    </g></svg>`;
+}
+
+function crPlace(step, animate) {
+  const ck = document.getElementById("cr-ck"), w = document.getElementById("cr-world");
+  if (!ck || !w) return;
+  if (!animate) { ck.style.transition = "none"; w.style.transition = "none"; }
+  ck.style.transform = `translate(${crCenterX(step)}px,${CR.GROUND}px)`;
+  w.style.transform = `translateX(${-crCam(step)}px)`;
+  if (!animate) { void ck.getBoundingClientRect(); ck.style.transition = ""; w.style.transition = "transform .55s ease-in-out"; }
+  const inner = ck.querySelector(".cr-hop");
+  if (animate && inner) { inner.classList.remove("hopping", "dead", "dance"); void inner.getBoundingClientRect(); inner.classList.add("hopping"); }
+  if (!animate && inner) inner.classList.remove("hopping", "dead", "dance");
+}
+
+function crPaint(d, rules) {
+  for (let i = 1; i <= CR.N; i++) {
+    const c = document.getElementById(`cr-coinc-${i}`), t = document.getElementById(`cr-coint-${i}`);
+    if (!c) continue;
+    if (i <= d.step) { c.setAttribute("fill", "#e8b620"); c.setAttribute("stroke", "#fff0a8"); t.textContent = "✓"; t.setAttribute("font-size", "24"); t.setAttribute("y", "9"); }
+    else {
+      const next = i === d.step + 1 && d.status !== "lost" && d.status !== "cashed_out";
+      c.setAttribute("fill", i === CR.N ? "#e8b620" : (next ? "#26b24b" : "#4a5bff"));
+      c.setAttribute("stroke", next ? "#b9ffc8" : "#c9d0ff");
+      t.textContent = "×" + Number(rules.steps[i - 1].multiplier).toFixed(2); t.setAttribute("font-size", "16"); t.setAttribute("y", "6");
+    }
+  }
+}
+
+function crCrash(lane) {
+  // a car drives down the trap lane and hits the chicken
+  const colors = ["#e5322d", "#ffb020", "#2f9bff"];
+  const car = document.getElementById("cr-carl");
+  car.innerHTML = `<g transform="translate(${crCenterX(lane)},0)"><g class="cr-car">${crCar(colors[lane % 3])}</g></g>`;
+  setTimeout(() => {
+    const inner = document.querySelector("#cr-ck .cr-hop"); if (inner) inner.classList.add("dead");
+    const g = document.getElementById("cr-grate-" + lane); if (g) g.style.opacity = ".3";
+  }, 380);
+}
+
+function crCoins(step) {
+  const g = document.getElementById("cr-coins");
+  const cx = crCenterX(step);
+  let h = "";
+  for (let k = 0; k < 14; k++) {
+    const dx = (Math.random() - 0.5) * 150, dy = -50 - Math.random() * 80, d = (Math.random() * 0.25).toFixed(2);
+    h += `<g style="--dx:${dx}px;--dy:${dy}px;animation:cr-coin .9s ${d}s ease-out forwards;transform:translate(${cx}px,200px)"><circle r="8" fill="#ffd23f" stroke="#c48a00" stroke-width="2"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#8a5a00">$</text></g>`;
+  }
+  g.innerHTML = h;
+  const inner = document.querySelector("#cr-ck .cr-hop"); if (inner) { inner.classList.remove("hopping"); inner.classList.add("dance"); }
+}
+
+function crInjectStyles() {
+  if (document.getElementById("cr-style")) return;
+  const st = document.createElement("style"); st.id = "cr-style";
+  st.textContent = `
+    .cr-hop{transform-box:fill-box;transform-origin:50% 100%}
+    .cr-hop.hopping{animation:cr-hop .5s ease-out}
+    .cr-hop.dead{animation:cr-dead .9s ease-in forwards}
+    .cr-hop.dance{animation:cr-dance .5s ease-in-out 4}
+    .cr-car{animation:cr-car .75s cubic-bezier(.5,0,.8,.6) forwards}
+    @keyframes cr-hop{0%{transform:translateY(0) scale(1,1)}25%{transform:translateY(4px) scale(1.1,.88)}60%{transform:translateY(-30px) scale(.95,1.06)}100%{transform:translateY(0) scale(1,1)}}
+    @keyframes cr-dead{0%{transform:translate(0,0) rotate(0)}25%{transform:translate(30px,-60px) rotate(140deg)}100%{transform:translate(120px,40px) rotate(640deg) scale(.4);opacity:0}}
+    @keyframes cr-dance{0%,100%{transform:rotate(-8deg) translateY(0)}50%{transform:rotate(8deg) translateY(-14px)}}
+    @keyframes cr-car{from{transform:translateY(-70px)}to{transform:translateY(340px)}}
+    @keyframes cr-coin{from{opacity:1}to{opacity:0;transform:translate(calc(var(--dx) + 0px),calc(var(--dy) + 120px))}}
+  `;
+  document.head.appendChild(st);
+}
+
+async function renderChicken() {
+  crInjectStyles();
+  screenEl.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const rules = (await getHouseRules()).chicken;
+    const act = await apiGet("/webapp/games/chicken/active");
+    crScreen(act.round, rules);
+  } catch (e) { tg.showAlert(e.message); renderPlayChooseGame(); }
+}
+
+function crScreen(rd, rules) {
+  const state = rd || { step: 0, status: "idle", bet: "0", multiplier: "1", potential_payout: "0", next_multiplier: rules.steps[0].multiplier };
+  screenEl.innerHTML = `
+    <div class="card" style="padding:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 6px 8px">
+        <h2 style="margin:0;font-weight:900;letter-spacing:.5px">CHICKEN <span style="color:#ffd23f">ROAD</span></h2>
+        <span class="friend-username" id="cr-bal"></span></div>
+      ${crSceneSVG(rules)}
+      <div id="cr-info" class="center-note" style="margin:8px 0 4px"></div>
+      <div class="error-text" id="cr-err"></div>
+      <div id="cr-controls"></div>
+    </div>
+    <div class="card"><div class="center-note" style="text-align:left">
+      <b>How it works</b> — one difficulty. Every lane is an independent <b>${rules.safe_chance}% safe / ${100 - rules.safe_chance}% car</b>,
+      decided by the server's secure random generator before you start and never adjusted for any player.
+      Chance to cross <i>k</i> lanes = 50%<sup><i>k</i></sup>. Payout = 2<sup><i>k</i></sup> × ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} (house edge ${rules.house_edge_percent}%).
+      Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
+      <div style="margin-top:6px">${rules.steps.map((t) => `${t.step}: ×${Number(t.multiplier).toFixed(2)} (${t.survive_chance}%)`).join(" · ")}</div>
+    </div></div>
+    <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
+  bindBack();
+  apiGet("/webapp/wallet").then((w) => { const b = document.getElementById("cr-bal"); if (b) b.textContent = `${fmt(w.available_balance)} ETB`; }).catch(() => {});
+  crPaint(state, rules);
+  crPlace(state.step, false);
+  const info = document.getElementById("cr-info"), ctr = document.getElementById("cr-controls"), err = document.getElementById("cr-err");
+  let busy = false;
+  let crId = rd ? rd.round_id : null;
+  const refreshBal = () => apiGet("/webapp/wallet").then((w) => { const b = document.getElementById("cr-bal"); if (b) b.textContent = `${fmt(w.available_balance)} ETB`; }).catch(() => {});
+  const bar = (inner) => `<div style="display:flex;gap:8px;align-items:stretch;margin-top:6px">${inner}</div>`;
+  const setUI = (d) => {
+    if (d.status === "active") {
+      info.innerHTML = `Bet ${d.bet} ETB · <b>×${Number(d.multiplier).toFixed(2)}</b> = <b>${d.potential_payout} ETB</b>` + (d.next_multiplier ? ` · Next ×${Number(d.next_multiplier).toFixed(2)} (50%)` : "");
+      ctr.innerHTML = bar(`<button class="btn" id="cr-cash" style="flex:1;margin:0;background:#ffc21a;color:#2a1c00;font-weight:800" ${d.step < 1 ? "disabled" : ""}>CASH OUT<br>${d.potential_payout} ETB</button>
+        <button class="btn" id="cr-go" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`);
+      document.getElementById("cr-go").addEventListener("click", doStep);
+      document.getElementById("cr-cash").addEventListener("click", doCash);
+    } else if (d.status === "idle") {
+      info.textContent = "Pick your bet, press GO, then keep crossing lanes. Each lane is a 50/50.";
+      ctr.innerHTML = `<div class="field" style="margin-bottom:6px"><label>Bet (ETB ${rules.min_bet}–${rules.max_bet})</label><input id="cr-bet" type="number" inputmode="decimal" value="${window._crBet || 10}" /></div>
+        <div class="stake-grid" style="margin-bottom:6px">${["5", "10", "50", "100", "500"].map((x) => `<button class="stake-btn" data-q="${x}">${x}</button>`).join("")}</div>
+        ${bar(`<button class="btn" id="cr-start" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`)}`;
+      ctr.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { document.getElementById("cr-bet").value = b.dataset.q; }));
+      document.getElementById("cr-start").addEventListener("click", doStart);
+    } else {
+      const lost = d.status === "lost";
+      info.innerHTML = lost ? `🚗💥 Hit by a car! You lost ${d.bet} ETB.` : `✅ Cashed out <b>${d.payout} ETB</b> (×${Number(d.multiplier).toFixed(2)})`;
+      ctr.innerHTML = bar(`<button class="btn" id="cr-again" style="flex:1;margin:0;background:#2fc057;font-weight:900">PLAY AGAIN</button>`);
+      document.getElementById("cr-again").addEventListener("click", () => crScreen(null, rules));
+      refreshBal();
+    }
+  };
+  const doStart = async () => {
+    if (busy) return; busy = true; err.textContent = "";
+    try {
+      window._crBet = document.getElementById("cr-bet").value.trim();
+      const d = await apiPostJson("/webapp/games/chicken/start", { bet: window._crBet });
+      crId = d.round_id; document.getElementById("cr-carl").innerHTML = ""; crPaint(d, rules); crPlace(0, false); setUI(d); refreshBal();
+    } catch (e) { err.textContent = e.message; }
+    busy = false;
+  };
+  const doStep = async () => {
+    if (busy) return; busy = true; err.textContent = "";
+    try {
+      const d = await apiPostJson("/webapp/games/chicken/step", { round_id: crId });
+      if (d.status === "lost") {
+        crPlace(d.lost_at - 1 + 1 > CR.N ? CR.N : d.lost_at, true);   // chicken steps into the lane
+        crPaint({ ...d, step: d.lost_at - 1 }, rules);
+        setTimeout(() => { crCrash(d.lost_at); setTimeout(() => setUI(d), 1000); }, 550);
+      } else {
+        crPlace(d.step, true); crPaint(d, rules);
+        if (d.status === "cashed_out") setTimeout(() => { crCoins(d.step); setUI(d); }, 550);
+        else setUI(d);
+      }
+    } catch (e) { err.textContent = e.message; }
+    busy = false;
+  };
+  const doCash = async () => {
+    if (busy) return; busy = true; err.textContent = "";
+    try {
+      const d = await apiPostJson("/webapp/games/chicken/cashout", { round_id: crId });
+      crCoins(d.step); setUI(d);
+    } catch (e) { err.textContent = e.message; }
+    busy = false;
+  };
+  setUI(state);
 }

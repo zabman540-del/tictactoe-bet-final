@@ -48,7 +48,6 @@ async def main():
     dp.include_router(start.router)
     dp.include_router(play.router)
     dp.include_router(challenge.router)
-    dp.include_router(checkers.router)
     dp.include_router(game.router)
     dp.include_router(deposit.router)
     dp.include_router(withdraw.router)

@@ -22,7 +22,7 @@ from app.services.wallet_service import _get_locked_wallet, _write_ledger_row
 HOUSE_EDGE = Decimal("0.03")          # Dice edge, disclosed to players
 MINES_EDGE = Decimal("0.15")          # Mines edge, disclosed to players
 DICE_ENABLED = False                  # Dice is "coming soon"; set True to open it
-MIN_BET = Decimal("5")
+MIN_BET = Decimal("1")
 MAX_BET = Decimal("500")
 MAX_PAYOUT = Decimal("2000")          # per-round cap; Mines auto cashes out when reached
 GRID = 25
@@ -246,6 +246,107 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
            "balance": str(wallet.available_balance)}
     db.commit()
     return out
+
+
+# ---------------- Chicken Road ----------------
+# One difficulty. Every step is an independent 50% safe / 50% trap. The whole
+# path is drawn with the OS CSPRNG when the round starts and kept secret on the
+# server. Fair multiplier = 2^k; we pay 2^k x (1 - CHICKEN_EDGE), disclosed.
+
+CHICKEN_EDGE = Decimal("0.10")
+CHICKEN_MAX_STEPS = 10
+CHICKEN_SAFE_CHANCE = 50
+
+
+def chicken_multiplier(step: int) -> Decimal:
+    if step <= 0:
+        return Decimal("1")
+    return (Decimal(2) ** step * (1 - CHICKEN_EDGE)).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+
+
+def chicken_rules() -> dict:
+    return {"safe_chance": CHICKEN_SAFE_CHANCE, "house_edge_percent": str(CHICKEN_EDGE * 100),
+            "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
+            "max_steps": CHICKEN_MAX_STEPS,
+            "steps": [{"step": k, "multiplier": str(chicken_multiplier(k)),
+                       "survive_chance": str((Decimal(100) / (Decimal(2) ** k)).quantize(Decimal("0.01")))}
+                      for k in range(1, CHICKEN_MAX_STEPS + 1)]}
+
+
+def _chicken_public(r: GameRound) -> dict:
+    p = r.params
+    step = p["step"]
+    out = {"round_id": str(r.id), "game": "chicken", "status": r.status, "bet": str(r.bet_amount),
+           "step": step, "max_steps": CHICKEN_MAX_STEPS, "multiplier": str(r.multiplier),
+           "payout": str(r.payout_amount),
+           "potential_payout": str(_q2(min(r.bet_amount * r.multiplier, MAX_PAYOUT)))}
+    if r.status == "active" and step < CHICKEN_MAX_STEPS:
+        out["next_multiplier"] = str(chicken_multiplier(step + 1))
+    if r.status == "lost":
+        out["lost_at"] = step + 1
+    return out
+
+
+def chicken_start(db: Session, user_id, bet) -> dict:
+    bet = _check_bet(bet)
+    wallet = _get_locked_wallet(db, user_id)
+    active = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "chicken",
+                                         GameRound.status == "active").first())
+    if active:
+        db.rollback()
+        raise GameError("You already have an active Chicken Road round.")
+    if wallet.available_balance < bet:
+        db.rollback()
+        raise GameError("Not enough balance.")
+    path = [secrets.randbelow(2) == 1 for _ in range(CHICKEN_MAX_STEPS)]   # True = safe
+    rnd = GameRound(id=uuid.uuid4(), user_id=user_id, game="chicken", bet_amount=bet, status="active",
+                    params={"safe": path, "step": 0}, multiplier=Decimal("1"))
+    db.add(rnd)
+    wallet.available_balance -= bet
+    db.flush()
+    _write_ledger_row(db, wallet, "house_bet", -bet, f"round:{rnd.id}:bet", "house_round", rnd.id, "Chicken Road bet")
+    db.commit()
+    return _chicken_public(rnd)
+
+
+def chicken_step(db: Session, user_id, round_id) -> dict:
+    r = _load_round_locked(db, user_id, round_id, "chicken")
+    if r.status != "active":
+        out = _chicken_public(r); db.rollback(); return out
+    p = dict(r.params)
+    idx = p["step"]
+    if idx >= CHICKEN_MAX_STEPS:
+        out = _chicken_public(r); db.rollback(); return out
+    if p["safe"][idx]:
+        p["step"] = idx + 1
+        r.params = p
+        r.multiplier = chicken_multiplier(p["step"])
+        if p["step"] >= CHICKEN_MAX_STEPS or r.bet_amount * r.multiplier >= MAX_PAYOUT:
+            _settle_payout(db, r, "cashed_out")
+    else:
+        r.status, r.multiplier, r.payout_amount, r.settled_at = "lost", Decimal("0"), Decimal("0"), _now()
+    out = _chicken_public(r)
+    db.commit()
+    return out
+
+
+def chicken_cashout(db: Session, user_id, round_id) -> dict:
+    r = _load_round_locked(db, user_id, round_id, "chicken")
+    if r.status != "active":
+        out = _chicken_public(r); db.rollback(); return out
+    if r.params["step"] < 1:
+        db.rollback()
+        raise GameError("Take at least one step before cashing out.")
+    _settle_payout(db, r, "cashed_out")
+    out = _chicken_public(r)
+    db.commit()
+    return out
+
+
+def chicken_active(db: Session, user_id):
+    r = db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "chicken",
+                                   GameRound.status == "active").first()
+    return _chicken_public(r) if r else None
 
 
 # ---------------- History ----------------

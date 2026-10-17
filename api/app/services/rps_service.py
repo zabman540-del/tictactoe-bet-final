@@ -2,7 +2,7 @@
 services/rps_service.py — Rock Paper Scissors, 1v1.
 
 Rules (shown to players before they play):
- - Both stake the same amount (locked when the challenge is created / joined).
+ - Both stake the same amount, 5-500 ETB (locked when the challenge is created / joined).
  - Both secretly pick Rock, Paper or Scissors. A pick is final (cannot be changed).
  - Moves stay hidden (server never sends them) until BOTH have picked.
  - Rock beats Scissors, Scissors beats Paper, Paper beats Rock.
@@ -22,7 +22,8 @@ from app.models.models import RpsGame, User
 from app.services import wallet_service
 from app.services.wallet_service import InsufficientBalanceError
 
-STAKES = [Decimal("10"), Decimal("20"), Decimal("50"), Decimal("100")]
+MIN_STAKE = Decimal("5")
+MAX_STAKE = Decimal("500")
 MOVES = ("rock", "paper", "scissors")
 BEATS = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
 OPEN_MINUTES = 10
@@ -46,7 +47,7 @@ def fee_for(stake: Decimal) -> Decimal:
 
 
 def rules() -> dict:
-    return {"stakes": [str(s) for s in STAKES], "pick_seconds": PICK_SECONDS, "open_minutes": OPEN_MINUTES,
+    return {"min_stake": str(MIN_STAKE), "max_stake": str(MAX_STAKE), "pick_seconds": PICK_SECONDS, "open_minutes": OPEN_MINUTES,
             "fees": {"up_to_50": "1", "up_to_100": "2", "above_100": "3"}}
 
 
@@ -134,8 +135,8 @@ def create(db: Session, user: User, stake, invited_id=None) -> RpsGame:
         stake = Decimal(str(stake))
     except Exception:
         raise RpsError("Invalid stake.")
-    if stake not in STAKES:
-        raise RpsError("Choose one of the listed stakes.")
+    if stake != stake.quantize(Decimal("0.01")) or stake < MIN_STAKE or stake > MAX_STAKE:
+        raise RpsError(f"Stake must be between {MIN_STAKE} and {MAX_STAKE} ETB.")
     g = RpsGame(id=uuid.uuid4(), creator_id=user.internal_id, invited_id=invited_id, stake_amount=stake,
                 status="open", expires_at=_now() + timedelta(minutes=OPEN_MINUTES))
     db.add(g)

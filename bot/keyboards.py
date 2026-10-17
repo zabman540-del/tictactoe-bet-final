@@ -50,7 +50,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     """The persistent bottom menu shown after /start."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎮 Play"), KeyboardButton(text="🔴 Checkers")],
+            [KeyboardButton(text="🎮 Play")],
             [KeyboardButton(text="🎯 Play vs Friend"), KeyboardButton(text="👥 Friends")],
             [KeyboardButton(text="💰 Wallet")],
             [KeyboardButton(text="➕ Deposit"), KeyboardButton(text="💸 Withdraw")],
