@@ -18,12 +18,12 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.core.rate_limit import limiter
 from app.routes import (
-    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games,
+    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games, rps,
     admin_auth, admin_deposits, admin_withdrawals,
     admin_dashboard, admin_users,
 )
 from app.core.database import SessionLocal
-from app.services import match_service
+from app.services import match_service, rps_service
 from app.models.models import Match
 
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +53,7 @@ app.include_router(challenges.router, tags=["challenges"])
 app.include_router(friends.router, tags=["friends"])
 app.include_router(webapp.router, tags=["webapp"])
 app.include_router(games.router, tags=["games"])
+app.include_router(rps.router, tags=["rps"])
 app.include_router(admin_auth.router, tags=["admin"])
 app.include_router(admin_deposits.router, tags=["admin"])
 app.include_router(admin_withdrawals.router, tags=["admin"])
@@ -108,6 +109,11 @@ async def timeout_checker_loop():
                     match_service.check_and_apply_timeout(db, match_id)
                 except Exception:
                     logger.exception(f"Error checking timeout for match {match_id}")
+            try:
+                rps_service.sweep_timeouts(db)
+            except Exception:
+                db.rollback()
+                logger.exception("Error sweeping RPS timeouts")
         finally:
             db.close()
 

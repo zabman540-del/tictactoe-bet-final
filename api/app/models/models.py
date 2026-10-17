@@ -303,3 +303,25 @@ class GameRound(Base):
     payout_amount = Column(Numeric(14, 2), nullable=False, default=0)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     settled_at = Column(TIMESTAMP(timezone=True))
+
+
+class RpsGame(Base):
+    __tablename__ = "rps_games"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"), nullable=False, index=True)
+    opponent_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"), index=True)
+    invited_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"))
+    stake_amount = Column(Numeric(14, 2), nullable=False)
+    platform_fee = Column(Numeric(14, 2), nullable=False, default=0)
+    status = Column(Text, nullable=False, default="open", index=True)
+    creator_move = Column(Text)
+    opponent_move = Column(Text)
+    winner_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"))
+    result_reason = Column(Text)
+    payout_amount = Column(Numeric(14, 2))
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    joined_at = Column(TIMESTAMP(timezone=True))
+    pick_deadline = Column(TIMESTAMP(timezone=True))
+    settled_at = Column(TIMESTAMP(timezone=True))

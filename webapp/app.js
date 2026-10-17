@@ -85,6 +85,7 @@ async function router() {
     case "profile": return renderProfile();
     case "register": return renderRegister();
     case "board": return renderBoard(param);
+    case "rps": return param ? renderRpsGame(param) : renderRps();
     default: return renderHome();
   }
 }
@@ -196,11 +197,13 @@ async function renderPlayChooseGame() {
       <h2>🎮 Or start a new game</h2>
       <button class="btn" id="play-ttt">✕⭕ Tic-Tac-Toe</button>
       <button class="btn secondary" id="play-checkers">🔴 Checkers</button>
+      <button class="btn secondary" id="play-rps">✊✋✌️ Rock Paper Scissors</button>
       <button class="btn secondary" id="play-mines">💣 Mines</button>
       <button class="btn secondary" id="play-dice" disabled style="opacity:.55">🎲 Dice — coming soon</button>
     </div>
   `;
   document.getElementById("play-mines").addEventListener("click", renderMines);
+  document.getElementById("play-rps").addEventListener("click", renderRps);
   
   document.getElementById("play-ttt").addEventListener("click", () => renderPlayChooseStake("tictactoe"));
   document.getElementById("play-checkers").addEventListener("click", () => renderPlayChooseStake("checkers"));
@@ -986,4 +989,134 @@ async function renderDice() {
     });
   };
   draw();
+}
+
+
+/* ---------------- Rock Paper Scissors ---------------- */
+
+const RPS_ICON = { rock: "✊", paper: "✋", scissors: "✌️" };
+const RPS_NAME = { rock: "Rock", paper: "Paper", scissors: "Scissors" };
+
+async function renderRps() {
+  stopPolling();
+  screenEl.innerHTML = `<div class="spinner"></div>`;
+  let rules, lobby, friends;
+  try {
+    [rules, lobby, friends] = await Promise.all([
+      apiGet("/webapp/rps/rules"), apiGet("/webapp/rps/lobby"),
+      apiGet("/webapp/friends").catch(() => ({ friends: [] })),
+    ]);
+  } catch (e) { tg.showAlert(e.message); return renderPlayChooseGame(); }
+  let stake = rules.stakes[0];
+  screenEl.innerHTML = `
+    <div class="card">
+      <h2>✊✋✌️ Rock Paper Scissors • 1v1</h2>
+      <p class="center-note" style="text-align:left">
+        Both players stake the same amount and secretly pick ✊ Rock, ✋ Paper or ✌️ Scissors.
+        Moves stay hidden until both have locked in, and a locked move can't be changed.
+        Rock beats Scissors, Scissors beats Paper, Paper beats Rock.<br>
+        <b>Winner</b> gets 2× stake minus the fee (${rules.fees.up_to_50} ETB up to 50, ${rules.fees.up_to_100} up to 100, ${rules.fees.above_100} above).
+        <b>Same move = draw</b>: both refunded, no fee.<br>
+        You have ${rules.pick_seconds}s to pick after the opponent joins. If only one player picks, they win. If nobody picks, both are refunded.
+        Unjoined challenges expire after ${rules.open_minutes} min and your stake is returned.
+      </p>
+    </div>
+    ${lobby.mine ? `<div class="card"><h2>Your active game</h2><button class="btn" id="rps-resume">Resume</button></div>` : ""}
+    <div class="card">
+      <h2>⚔️ Challenge a player</h2>
+      <div class="stake-grid">${rules.stakes.map((x) => `<button class="stake-btn" data-rs="${x}">${x} ETB</button>`).join("")}</div>
+      <div class="error-text" id="rps-err"></div>
+      <button class="btn" id="rps-open">Open challenge (anyone can join)</button>
+      ${friends.friends.length ? `<p class="center-note" style="text-align:left;margin-top:10px">Or challenge a friend directly:</p>
+        ${friends.friends.map((f) => `<div class="list-row"><div class="friend-name">${f.full_name || f.telegram_username || "Friend"}</div>
+          <button class="btn" style="margin:0;width:auto;padding:8px 14px" data-rf="${f.internal_id}">Challenge</button></div>`).join("")}` : ""}
+    </div>
+    ${lobby.open.length ? `<div class="card"><h2>⏳ Open challenges</h2>
+      ${lobby.open.map((g) => `<div class="list-row"><div><div class="friend-name">${g.creator_name || "Player"}${g.private ? " (for you)" : ""}</div>
+        <div class="friend-username">${g.stake} ETB</div></div>
+        <button class="btn" style="margin:0;width:auto;padding:8px 14px" data-rj="${g.game_id}">Join</button></div>`).join("")}</div>` : ""}
+    <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
+  bindBack();
+  const hl = () => screenEl.querySelectorAll("[data-rs]").forEach((b) => { b.style.outline = b.dataset.rs === stake ? "2px solid #4f7cff" : "none"; });
+  screenEl.querySelectorAll("[data-rs]").forEach((b) => b.addEventListener("click", () => { stake = b.dataset.rs; hl(); }));
+  hl();
+  const errEl = document.getElementById("rps-err");
+  const create = async (invite) => {
+    try {
+      const r = await apiPostJson("/webapp/rps/create", { stake, invite_user_id: invite || null });
+      if (invite && r.notified === false) tg.showAlert("Challenge created, but Telegram couldn't deliver it. Ask your friend to open Nova Bet and join from the list.");
+      window.location.hash = `#/rps/${r.game_id}`;
+    } catch (e) { errEl.textContent = e.message; }
+  };
+  document.getElementById("rps-open").addEventListener("click", () => create(null));
+  screenEl.querySelectorAll("[data-rf]").forEach((b) => b.addEventListener("click", () => create(b.dataset.rf)));
+  screenEl.querySelectorAll("[data-rj]").forEach((b) => b.addEventListener("click", async () => {
+    try { await apiPostJson(`/webapp/rps/${b.dataset.rj}/join`, {}); window.location.hash = `#/rps/${b.dataset.rj}`; }
+    catch (e) { errEl.textContent = e.message; }
+  }));
+  const rs = document.getElementById("rps-resume");
+  if (rs) rs.addEventListener("click", () => { window.location.hash = `#/rps/${lobby.mine}`; });
+}
+
+async function renderRpsGame(gameId) {
+  screenEl.innerHTML = `<div class="spinner"></div>`;
+  let busy = false;
+  const draw = (s) => {
+    const secs = (iso) => Math.max(0, Math.round((new Date(iso) - Date.now()) / 1000));
+    let body = "";
+    const head = `<h2>✊✋✌️ Rock Paper Scissors • ${s.stake} ETB</h2>
+      <p class="friend-username">${s.creator_name || "Player"} vs ${s.opponent_name || "…"} · fee ${s.fee} ETB · winner takes ${(Number(s.stake) * 2 - Number(s.fee)).toFixed(2)} ETB</p>`;
+    if (s.status === "open") {
+      if (s.you_are === "creator") {
+        body = `<p class="center-note">Waiting for an opponent… (expires in ${Math.ceil(secs(s.expires_at) / 60)} min)</p>
+          <button class="btn secondary" id="r-cancel">Cancel &amp; refund</button>`;
+      } else {
+        body = `<p class="center-note">${s.creator_name || "A player"} challenges you for ${s.stake} ETB.<br>Winner gets ${(Number(s.stake) * 2 - Number(s.fee)).toFixed(2)} ETB. Draw = refund.</p>
+          <button class="btn" id="r-join">Accept &amp; stake ${s.stake} ETB</button>`;
+      }
+    } else if (s.status === "picking") {
+      if (!s.my_move) {
+        body = `<p class="center-note">Choose your move. Your opponent won't see it until both of you have chosen. ⏱ ${secs(s.pick_deadline)}s left</p>
+          <div class="btn-row">${["rock", "paper", "scissors"].map((m) => `<button class="btn" data-m="${m}" style="font-size:28px">${RPS_ICON[m]}<br><span style="font-size:12px">${RPS_NAME[m]}</span></button>`).join("")}</div>`;
+      } else {
+        body = `<p class="center-note">🔒 You locked ${RPS_ICON[s.my_move]} ${RPS_NAME[s.my_move]}.<br>${s.opponent_locked ? "Revealing…" : "Waiting for your opponent… ⏱ " + secs(s.pick_deadline) + "s"}</p>`;
+      }
+    } else if (s.status === "completed" || s.status === "draw") {
+      const mine = s.you_are === "creator" ? s.creator_move : s.opponent_move;
+      const theirs = s.you_are === "creator" ? s.opponent_move : s.creator_move;
+      const mi = mine ? `${RPS_ICON[mine]} ${RPS_NAME[mine]}` : "— no pick";
+      const ti = theirs ? `${RPS_ICON[theirs]} ${RPS_NAME[theirs]}` : "— no pick";
+      let res;
+      if (s.status === "draw") res = s.reason === "no_picks" ? "⏱ Nobody picked. Stakes refunded." : "🤝 Draw! Your stake is refunded.";
+      else if (s.you_won) res = `🎉 You won ${s.payout} ETB!${s.reason === "forfeit" ? " (opponent didn't pick in time)" : ""}`;
+      else res = `❌ You lost ${s.stake} ETB.${s.reason === "forfeit" ? " (you didn't pick in time)" : ""}`;
+      body = `<div style="text-align:center;font-size:20px;margin:12px 0">You: ${mi}<br>Opponent: ${ti}</div>
+        <p class="center-note" style="font-size:16px">${res}</p>
+        <button class="btn" id="r-again">Play again</button>`;
+    } else {
+      body = `<p class="center-note">${s.status === "cancelled" ? "Challenge cancelled. Stake refunded." : "Challenge expired. Stake refunded."}</p>
+        <button class="btn" id="r-again">Back</button>`;
+    }
+    screenEl.innerHTML = `<div class="card">${head}${body}<div class="error-text" id="r-err"></div></div>`;
+    const err = (e) => { const x = document.getElementById("r-err"); if (x) x.textContent = e.message; };
+    const post = async (path, data) => {
+      if (busy) return; busy = true;
+      try { draw(await apiPostJson(`/webapp/rps/${gameId}/${path}`, data || {})); }
+      catch (e) { err(e); }
+      busy = false;
+    };
+    screenEl.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => post("pick", { move: b.dataset.m })));
+    const j = document.getElementById("r-join"); if (j) j.addEventListener("click", () => post("join"));
+    const c = document.getElementById("r-cancel"); if (c) c.addEventListener("click", () => post("cancel"));
+    const a = document.getElementById("r-again"); if (a) a.addEventListener("click", () => { window.location.hash = "#/rps"; });
+  };
+  try { draw(await apiGet(`/webapp/rps/${gameId}`)); } catch (e) { tg.showAlert(e.message); return renderRps(); }
+  pollTimer = setInterval(async () => {
+    if (busy) return;
+    try {
+      const s = await apiGet(`/webapp/rps/${gameId}`);
+      draw(s);
+      if (["completed", "draw", "cancelled", "expired"].includes(s.status)) stopPolling();
+    } catch (e) {}
+  }, 2000);
 }
