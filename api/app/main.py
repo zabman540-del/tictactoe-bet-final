@@ -18,7 +18,7 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.core.rate_limit import limiter
 from app.routes import (
-    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp,
+    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games,
     admin_auth, admin_deposits, admin_withdrawals,
     admin_dashboard, admin_users,
 )
@@ -52,6 +52,7 @@ app.include_router(matches.router, tags=["matches"])
 app.include_router(challenges.router, tags=["challenges"])
 app.include_router(friends.router, tags=["friends"])
 app.include_router(webapp.router, tags=["webapp"])
+app.include_router(games.router, tags=["games"])
 app.include_router(admin_auth.router, tags=["admin"])
 app.include_router(admin_deposits.router, tags=["admin"])
 app.include_router(admin_withdrawals.router, tags=["admin"])

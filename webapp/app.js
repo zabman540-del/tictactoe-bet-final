@@ -196,8 +196,12 @@ async function renderPlayChooseGame() {
       <h2>🎮 Or start a new game</h2>
       <button class="btn" id="play-ttt">✕⭕ Tic-Tac-Toe</button>
       <button class="btn secondary" id="play-checkers">🔴 Checkers</button>
+      <button class="btn secondary" id="play-mines">💣 Mines</button>
+      <button class="btn secondary" id="play-dice">🎲 Dice</button>
     </div>
   `;
+  document.getElementById("play-mines").addEventListener("click", renderMines);
+  document.getElementById("play-dice").addEventListener("click", renderDice);
   document.getElementById("play-ttt").addEventListener("click", () => renderPlayChooseStake("tictactoe"));
   document.getElementById("play-checkers").addEventListener("click", () => renderPlayChooseStake("checkers"));
 
@@ -835,3 +839,151 @@ async function renderProfile() {
 /* ---------------- Boot ---------------- */
 
 router();
+
+
+/* ---------------- House games: Mines & Dice ---------------- */
+
+let houseRules = null;
+async function getHouseRules() {
+  if (!houseRules) houseRules = await apiGet("/webapp/games/rules");
+  return houseRules;
+}
+const gameBack = `<button class="btn secondary" id="g-back">⬅️ Back</button>`;
+function bindBack() {
+  const b = document.getElementById("g-back");
+  if (b) b.addEventListener("click", renderPlayChooseGame);
+}
+
+async function renderMines() {
+  screenEl.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const rules = await getHouseRules();
+    const act = await apiGet("/webapp/games/mines/active");
+    if (act.round) return drawMines(act.round, rules);
+    drawMinesSetup(rules);
+  } catch (e) { tg.showAlert(e.message); renderPlayChooseGame(); }
+}
+
+function drawMinesSetup(rules) {
+  const r = rules.mines;
+  let mines = 5;
+  screenEl.innerHTML = `
+    <div class="card">
+      <h2>💣 Mines</h2>
+      <p class="center-note" style="text-align:left">
+        5×5 board, hidden mines. Each safe tile raises your payout multiplier. Hit a mine and you lose your bet.
+        Cash out any time after your first pick. Mines are placed randomly and the odds are the same for everyone.
+        House edge: ${r.house_edge_percent}%. Bet ${r.min_bet}–${r.max_bet} ETB. Max payout per round: ${r.max_payout} ETB (auto cash-out).
+      </p>
+      <div class="field"><label>Bet (ETB)</label><input id="m-bet" type="number" inputmode="decimal" value="10" /></div>
+      <div class="field"><label>Mines</label>
+        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines} 💣 / ${o.safe} safe</button>`).join("")}</div>
+      </div>
+      <div id="m-table" class="friend-username" style="margin:8px 0"></div>
+      <div class="error-text" id="m-err"></div>
+      <button class="btn" id="m-start">Start round</button>
+      ${gameBack}
+    </div>`;
+  const showTable = () => {
+    const o = r.options.find((x) => x.mines === mines);
+    document.getElementById("m-table").innerHTML = "Multipliers by safe picks: " + o.table.slice(0, 8).map((t) => `${t.picks}→×${t.multiplier}`).join(" · ") + (o.table.length > 8 ? " …" : "");
+    screenEl.querySelectorAll("[data-m]").forEach((b) => { b.style.outline = Number(b.dataset.m) === mines ? "2px solid #4f7cff" : "none"; });
+  };
+  screenEl.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => { mines = Number(b.dataset.m); showTable(); }));
+  showTable();
+  bindBack();
+  document.getElementById("m-start").addEventListener("click", async (ev) => {
+    ev.target.disabled = true;
+    try {
+      const rd = await apiPostJson("/webapp/games/mines/start", { bet: document.getElementById("m-bet").value.trim(), mines });
+      drawMines(rd, rules);
+    } catch (e) { document.getElementById("m-err").textContent = e.message; ev.target.disabled = false; }
+  });
+}
+
+function drawMines(rd, rules) {
+  const active = rd.status === "active";
+  const pos = rd.mine_positions || [];
+  let cells = "";
+  for (let i = 0; i < 25; i++) {
+    let face = "", bg = "#2a3350";
+    if (rd.revealed.includes(i)) { face = "💎"; bg = "#1f6f4a"; }
+    else if (!active && pos.includes(i)) { face = "💣"; bg = (rd.hit === i) ? "#b3262b" : "#5a2a35"; }
+    cells += `<button data-t="${i}" ${active && !rd.revealed.includes(i) ? "" : "disabled"} style="aspect-ratio:1;font-size:24px;border:0;border-radius:10px;background:${bg};color:#fff">${face}</button>`;
+  }
+  let msg = "";
+  if (active) msg = `Mines: ${rd.mines} · Bet ${rd.bet} ETB · Now ×${rd.multiplier} = ${rd.potential_payout} ETB` + (rd.next_multiplier ? `<br>Next safe pick: ×${rd.next_multiplier}` : "");
+  else if (rd.status === "lost") msg = `💥 Mine! You lost ${rd.bet} ETB.`;
+  else msg = `✅ Cashed out ${rd.payout} ETB (×${rd.multiplier})`;
+  screenEl.innerHTML = `
+    <div class="card">
+      <h2>💣 Mines</h2>
+      <p class="center-note" id="m-msg">${msg}</p>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0">${cells}</div>
+      <div class="error-text" id="m-err"></div>
+      ${active ? `<button class="btn" id="m-cash" ${rd.revealed.length ? "" : "disabled"}>💰 Cash out ${rd.potential_payout} ETB</button>`
+               : `<button class="btn" id="m-again">Play again</button>`}
+      ${active ? "" : gameBack}
+    </div>`;
+  bindBack();
+  let busy = false;
+  const act = async (fn) => {
+    if (busy) return; busy = true;
+    try { drawMines(await fn(), rules); }
+    catch (e) { document.getElementById("m-err").textContent = e.message; busy = false; }
+  };
+  screenEl.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () =>
+    act(() => apiPostJson("/webapp/games/mines/reveal", { round_id: rd.round_id, tile: Number(b.dataset.t) }))));
+  const c = document.getElementById("m-cash");
+  if (c) c.addEventListener("click", () => act(() => apiPostJson("/webapp/games/mines/cashout", { round_id: rd.round_id })));
+  const a = document.getElementById("m-again");
+  if (a) a.addEventListener("click", () => drawMinesSetup(rules));
+}
+
+async function renderDice() {
+  screenEl.innerHTML = `<div class="spinner"></div>`;
+  let rules;
+  try { rules = (await getHouseRules()).dice; } catch (e) { tg.showAlert(e.message); return renderPlayChooseGame(); }
+  let dir = "over", target = 50, result = "";
+  const draw = async () => {
+    let q = null, qerr = "";
+    try { q = await apiPostJson("/webapp/games/dice/quote", { direction: dir, target }); } catch (e) { qerr = e.message; }
+    screenEl.innerHTML = `
+      <div class="card">
+        <h2>🎲 Dice</h2>
+        <p class="center-note" style="text-align:left">
+          Pick Over or Under a target. The bot rolls a random number 1–100. Payout = bet × (100 ÷ win chance) less a ${rules.house_edge_percent}% house edge,
+          the same for every player. Win chance ${rules.min_chance}%–${rules.max_chance}%. Bet ${rules.min_bet}–${rules.max_bet} ETB. Max payout ${rules.max_payout} ETB.
+        </p>
+        ${result}
+        <div class="btn-row">
+          <button class="btn ${dir === "over" ? "" : "secondary"}" id="d-over">Over</button>
+          <button class="btn ${dir === "under" ? "" : "secondary"}" id="d-under">Under</button>
+        </div>
+        <div class="field"><label>Target: <b id="d-tv">${target}</b></label>
+          <input id="d-target" type="range" min="2" max="99" value="${target}" style="width:100%" /></div>
+        <p class="center-note" id="d-quote">${q ? `Wins on ${q.wins_on} · chance ${q.win_chance}% · payout ×${q.multiplier}` : `⚠️ ${qerr}`}</p>
+        <div class="field"><label>Bet (ETB)</label><input id="d-bet" type="number" inputmode="decimal" value="${window._diceBet || 10}" /></div>
+        <div class="error-text" id="d-err"></div>
+        <button class="btn" id="d-roll" ${q ? "" : "disabled"}>Roll 🎲</button>
+        ${gameBack}
+      </div>`;
+    bindBack();
+    document.getElementById("d-over").addEventListener("click", () => { dir = "over"; result = ""; draw(); });
+    document.getElementById("d-under").addEventListener("click", () => { dir = "under"; result = ""; draw(); });
+    document.getElementById("d-target").addEventListener("input", (e) => { document.getElementById("d-tv").textContent = e.target.value; });
+    document.getElementById("d-target").addEventListener("change", (e) => { target = Number(e.target.value); window._diceBet = document.getElementById("d-bet").value; result = ""; draw(); });
+    document.getElementById("d-roll").addEventListener("click", async (ev) => {
+      ev.target.disabled = true;
+      try {
+        window._diceBet = document.getElementById("d-bet").value.trim();
+        const r = await apiPostJson("/webapp/games/dice/roll", { bet: window._diceBet, direction: dir, target });
+        result = `<div class="card" style="text-align:center"><div style="font-size:48px">🎲 ${r.roll}</div>
+          <div>${r.won ? `✅ You won ${r.payout} ETB (×${r.multiplier})` : `❌ You lost ${r.bet} ETB`}</div>
+          <div class="friend-username">${r.direction === "over" ? "Over" : "Under"} ${r.target} · chance ${r.win_chance}%</div></div>`;
+        draw();
+      } catch (e) { document.getElementById("d-err").textContent = e.message; ev.target.disabled = false; }
+    });
+  };
+  draw();
+}

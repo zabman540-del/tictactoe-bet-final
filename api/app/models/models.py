@@ -112,7 +112,7 @@ class WalletTransaction(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "type IN ('deposit','withdrawal','stake_lock','stake_release','payout','fee','draw_refund','admin_adjustment')",
+            "type IN ('deposit','withdrawal','stake_lock','stake_release','payout','fee','draw_refund','admin_adjustment','house_bet','house_payout')",
             name="chk_wallet_txn_type"
         ),
     )
@@ -288,3 +288,18 @@ class PlatformConfig(Base):
     description = Column(Text)
     updated_by_admin_id = Column(UUID(as_uuid=True), ForeignKey("admins.id"))
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class GameRound(Base):
+    __tablename__ = "game_rounds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"), nullable=False, index=True)
+    game = Column(Text, nullable=False)
+    bet_amount = Column(Numeric(14, 2), nullable=False)
+    status = Column(Text, nullable=False)
+    params = Column(JSONB, nullable=False, default=dict)
+    multiplier = Column(Numeric(18, 4), nullable=False, default=0)
+    payout_amount = Column(Numeric(14, 2), nullable=False, default=0)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    settled_at = Column(TIMESTAMP(timezone=True))
