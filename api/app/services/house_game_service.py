@@ -20,13 +20,13 @@ from app.models.models import GameRound
 from app.services.wallet_service import _get_locked_wallet, _write_ledger_row
 
 HOUSE_EDGE = Decimal("0.03")          # Dice edge, disclosed to players
-MINES_EDGE = Decimal("0.10")          # Mines edge, disclosed to players
+MINES_EDGE = Decimal("0.15")          # Mines edge, disclosed to players
 DICE_ENABLED = False                  # Dice is "coming soon"; set True to open it
 MIN_BET = Decimal("5")
 MAX_BET = Decimal("500")
 MAX_PAYOUT = Decimal("2000")          # per-round cap; Mines auto cashes out when reached
 GRID = 25
-MINE_OPTIONS = [5, 10]            # 5 mines = low odds, 10 mines = medium odds
+MINE_OPTIONS = [10]               # one mode only: 10 mines, 15 safe
 DICE_MIN_CHANCE = 2                   # percent
 DICE_MAX_CHANCE = 95
 
@@ -55,25 +55,31 @@ def _check_bet(bet) -> Decimal:
 
 # ---------------- Mines math ----------------
 
+MINES_FIXED = {1: Decimal("1.42"), 2: Decimal("2"), 3: Decimal("2.5"),
+               4: Decimal("3"), 5: Decimal("3.5"), 6: Decimal("5")}   # fixed payout table, shown to players
+MINES_MAX_PICKS = max(MINES_FIXED)                                   # auto cash-out at the last step
+
+
+def mines_win_prob(mines: int, k: int) -> Decimal:
+    return Decimal(comb(GRID - mines, k)) / Decimal(comb(GRID, k))
+
+
 def mines_multiplier(mines: int, safe_picked: int) -> Decimal:
-    """Fair multiplier for `safe_picked` safe tiles, times (1-edge).
-    True probability of k safe picks = C(25-m,k)/C(25,k)."""
     if safe_picked <= 0:
         return Decimal("1")
-    p_num = comb(GRID - mines, safe_picked)
-    p_den = comb(GRID, safe_picked)
-    m = (Decimal(p_den) / Decimal(p_num)) * (1 - MINES_EDGE)
-    return m.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+    return MINES_FIXED[safe_picked]
 
 
 def mines_table(mines: int) -> list:
-    return [{"picks": k, "multiplier": str(mines_multiplier(mines, k))}
-            for k in range(1, GRID - mines + 1)]
+    return [{"picks": k, "multiplier": str(m),
+             "win_chance": str((mines_win_prob(mines, k) * 100).quantize(Decimal("0.1"))),
+             "return_percent": str((mines_win_prob(mines, k) * m * 100).quantize(Decimal("0.1")))}
+            for k, m in MINES_FIXED.items()]
 
 
 def mines_rules() -> dict:
     return {
-        "house_edge_percent": str(MINES_EDGE * 100),
+        "max_picks": MINES_MAX_PICKS,
         "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
         "options": [{"mines": m, "safe": GRID - m, "table": mines_table(m)} for m in MINE_OPTIONS],
     }
@@ -88,7 +94,7 @@ def _mines_public(r: GameRound, reveal_all=False) -> dict:
         "potential_payout": str(_q2(min(r.bet_amount * r.multiplier, MAX_PAYOUT))),
     }
     nxt = len(p["revealed"]) + 1
-    if r.status == "active" and nxt <= GRID - p["mines"]:
+    if r.status == "active" and nxt <= MINES_MAX_PICKS:
         out["next_multiplier"] = str(mines_multiplier(p["mines"], nxt))
     if r.status != "active":
         out["mine_positions"] = p["positions"]   # shown only after the round ends
@@ -160,7 +166,7 @@ def mines_reveal(db: Session, user_id, round_id, tile: int) -> dict:
         r.params = p
         r.multiplier = mines_multiplier(p["mines"], len(p["revealed"]))
         capped = r.bet_amount * r.multiplier >= MAX_PAYOUT
-        if capped or len(p["revealed"]) == GRID - p["mines"]:
+        if capped or len(p["revealed"]) >= MINES_MAX_PICKS:
             _settle_payout(db, r, "cashed_out")
         out = _mines_public(r)
         out["safe"] = tile

@@ -866,18 +866,18 @@ async function renderMines() {
 
 function drawMinesSetup(rules) {
   const r = rules.mines;
-  let mines = 5;
+  let mines = 10;
   screenEl.innerHTML = `
     <div class="card">
       <h2>💣 Mines</h2>
       <p class="center-note" style="text-align:left">
         5×5 board, hidden mines. Each safe tile raises your payout multiplier. Hit a mine and you lose your bet.
         Cash out any time after your first pick. Mines are placed randomly and the odds are the same for everyone.
-        House edge: ${r.house_edge_percent}%. Bet ${r.min_bet}–${r.max_bet} ETB. Max payout per round: ${r.max_payout} ETB (auto cash-out).
+        Fixed payouts, auto cash-out after ${r.max_picks} safe picks. Bet ${r.min_bet}–${r.max_bet} ETB. Max payout per round: ${r.max_payout} ETB.
       </p>
       <div class="field"><label>Bet (ETB)</label><input id="m-bet" type="number" inputmode="decimal" value="10" /></div>
-      <div class="field"><label>Mines</label>
-        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines === 5 ? "Low odds" : "Medium odds"}<br>${o.mines} 💣 · ${o.safe} safe</button>`).join("")}</div>
+      <div class="field"><label>Mode</label>
+        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines} 💣 · ${o.safe} safe</button>`).join("")}</div>
       </div>
       <div id="m-table" class="friend-username" style="margin:8px 0"></div>
       <div class="error-text" id="m-err"></div>
@@ -886,7 +886,7 @@ function drawMinesSetup(rules) {
     </div>`;
   const showTable = () => {
     const o = r.options.find((x) => x.mines === mines);
-    document.getElementById("m-table").innerHTML = "Multipliers by safe picks: " + o.table.slice(0, 8).map((t) => `${t.picks}→×${t.multiplier}`).join(" · ") + (o.table.length > 8 ? " …" : "");
+    document.getElementById("m-table").innerHTML = "<b>Payouts</b> (chance to reach · average return)<br>" + o.table.map((t) => `${t.picks} safe → ×${t.multiplier} · ${t.win_chance}% · ${t.return_percent}%`).join("<br>");
     screenEl.querySelectorAll("[data-m]").forEach((b) => { b.style.outline = Number(b.dataset.m) === mines ? "2px solid #4f7cff" : "none"; });
   };
   screenEl.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => { mines = Number(b.dataset.m); showTable(); }));
