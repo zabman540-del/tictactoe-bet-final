@@ -134,6 +134,7 @@ def make_checkers_move(request: Request, match_id: str, payload: CheckersMoveReq
 # Telegram's signed initData instead of a client-supplied id, since
 # this is a real-money game and the request can't be trusted otherwise.
 
+@router.get("/matches/{match_id}/my-state")
 @router.get("/matches/{match_id}/webapp-state")
 def get_match_webapp(
     match_id: str, response: Response, db: Session = Depends(get_db),

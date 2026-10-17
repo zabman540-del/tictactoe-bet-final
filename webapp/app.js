@@ -296,7 +296,7 @@ async function renderBoard(matchId) {
   screenEl.innerHTML = `<div class="spinner"></div>`;
   let state;
   try {
-    state = await apiGet(`/matches/${matchId}/webapp-state`);
+    state = await apiGet(`/matches/${matchId}/my-state`);
   } catch (err) {
     screenEl.innerHTML = `<div class="card"><p class="error-text">${err.message}</p></div>`;
     return;
@@ -309,7 +309,7 @@ async function renderBoard(matchId) {
       <span>${state.stake_amount} ETB</span>
       <span id="board-turn-label">Loading…</span>
     </div>
-    <div id="board-debug-line" class="center-note" style="font-size:11px;opacity:.6;margin:-6px 0 8px"></div>
+    <div id="board-debug-line" class="center-note" style="font-size:11px;opacity:.6;margin:-6px 0 8px;word-break:break-all"></div>
     <div id="${isCheckers ? "checkers-board" : "tictactoe-board"}"></div>
     <div id="board-result-banner" class="hidden">
       <div id="board-result-text"></div>
@@ -478,7 +478,7 @@ async function renderBoard(matchId) {
   renderState(state);
   pollTimer = setInterval(async () => {
     try {
-      const s = await apiGet(`/matches/${matchId}/webapp-state`);
+      const s = await apiGet(`/matches/${matchId}/my-state`);
       renderState(s);
     } catch (err) {
       // transient network hiccup — next tick will retry
