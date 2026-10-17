@@ -100,7 +100,7 @@ async def phone_entered(message: Message, state: FSMContext, api, settings):
         "✅ Account created!\n\n"
         "📌 How it works:\n"
         "• Both players stake the same amount\n"
-        "• Winner takes the pot minus a 5 ETB platform fee\n"
+        "• Winner takes the pot minus a small platform fee (1–3 ETB)\n"
         "• A draw = full refund to both players, no fee\n\n"
         "Tap below to open Nova Bet — wallet, games, friends, everything is in there.",
         reply_markup=open_app_keyboard(settings.public_api_base_url),

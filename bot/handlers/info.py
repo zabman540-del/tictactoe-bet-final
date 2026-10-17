@@ -74,7 +74,7 @@ async def help_pressed(message: Message):
         "💸 <b>Withdraw</b> — request a payout (manually paid by admin).\n"
         "📜 <b>History</b> — your recent match results.\n\n"
         "📌 <b>Rules</b>\n"
-        "• Platform fee: 5 ETB per completed match\n"
+        "• Platform fee: 1 ETB (stake up to 50), 2 ETB (up to 100), 3 ETB (above 100) per completed match\n"
         "• Winner gets: total stakes − 5 ETB\n"
         "• Draw: both players fully refunded, no fee\n"
         "• No move within 45 seconds = forfeit\n\n"

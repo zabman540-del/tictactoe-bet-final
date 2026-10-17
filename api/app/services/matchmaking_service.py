@@ -370,9 +370,17 @@ def _create_match(
     random.shuffle(players)
     player_x_id, player_o_id = players[0], players[1]
 
-    # Fee rule: 1 birr per 10 birr staked (10% of the stake), taken
-    # from the pot when the match ends. e.g. 50 ETB stake -> 5 ETB fee.
-    platform_fee = (stake_amount * Decimal("0.10")).quantize(Decimal("0.01"))
+    # Fee rule (flat, per completed match, taken from the pot):
+    #   stake up to 50 ETB   -> 1 ETB
+    #   stake up to 100 ETB  -> 2 ETB
+    #   stake above 100 ETB  -> 3 ETB
+    # Draws are refunded in full with no fee.
+    if stake_amount <= Decimal("50"):
+        platform_fee = Decimal("1.00")
+    elif stake_amount <= Decimal("100"):
+        platform_fee = Decimal("2.00")
+    else:
+        platform_fee = Decimal("3.00")
 
     initial_board = checkers_service.initial_board() if game_type == "checkers" else "_________"
 
