@@ -153,11 +153,12 @@ async def invite_friend(redis_client, db: Session, inviter: User, friend_id: str
     )
 
     game_label = "Checkers" if game_type == "checkers" else "Tic-Tac-Toe"
-    await telegram_notify.send_message(
+    sent = await telegram_notify.send_message(
         result["opponent_telegram_id"],
         f"🎯 <b>{inviter.full_name or inviter.telegram_username or inviter.telegram_user_id} "
         f"challenged you to a {game_label} match for {stake_amount} ETB!</b>",
         reply_markup=telegram_notify.challenge_response_markup(),
     )
+    result["notified"] = sent
 
     return result

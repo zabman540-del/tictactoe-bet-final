@@ -6,7 +6,7 @@ move" endpoint, which is the real referee entry point.
 """
 
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Header, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -49,6 +49,20 @@ def _get_webapp_user(db: Session, x_telegram_init_data: str = Header(None)):
     except InvalidInitDataError as e:
         raise HTTPException(status_code=401, detail=str(e))
     return get_user_or_404(db, tg_user["id"])
+
+
+def _personalize(state: dict, user) -> dict:
+    """Adds the per-player fields the Mini App needs. The turn flag is
+    computed HERE, on the server, with the same rule make_move enforces,
+    so the screen can never disagree with what the server will accept."""
+    you_are = "X" if str(state.get("player_x_id")) == str(user.internal_id) else "O"
+    state["you_are"] = you_are
+    state["you_id"] = str(user.internal_id)
+    state["is_your_turn"] = (state.get("status") == "active" and state.get("current_turn") == you_are)
+    state["you_won"] = (
+        state["winner_id"] == str(user.internal_id) if state.get("winner_id") else None
+    )
+    return state
 
 
 @router.get("/matches/{match_id}")
@@ -122,9 +136,10 @@ def make_checkers_move(request: Request, match_id: str, payload: CheckersMoveReq
 
 @router.get("/matches/{match_id}/webapp-state")
 def get_match_webapp(
-    match_id: str, db: Session = Depends(get_db),
+    match_id: str, response: Response, db: Session = Depends(get_db),
     x_telegram_init_data: str = Header(None),
 ):
+    response.headers["Cache-Control"] = "no-store"
     user = _get_webapp_user(db, x_telegram_init_data)
     match = db.query(Match).filter(Match.id == uuid.UUID(match_id)).first()
     if match is None:
@@ -132,11 +147,7 @@ def get_match_webapp(
     if str(user.internal_id) not in (str(match.player_x_id), str(match.player_o_id)):
         raise HTTPException(status_code=403, detail="You're not a player in this match.")
 
-    state = _match_response(match)
-    state["you_are"] = "X" if str(user.internal_id) == str(match.player_x_id) else "O"
-    state["you_won"] = (
-        state["winner_id"] == str(user.internal_id) if state["winner_id"] else None
-    )
+    state = _personalize(_match_response(match), user)
     return state
 
 
@@ -163,10 +174,7 @@ def make_move_webapp(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    state["you_are"] = "X" if str(state.get("player_x_id")) == str(user.internal_id) else "O"
-    state["you_won"] = (
-        state["winner_id"] == str(user.internal_id) if state["winner_id"] else None
-    )
+    _personalize(state, user)
     return state
 
 
@@ -194,8 +202,5 @@ def make_checkers_move_webapp(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    state["you_are"] = "X" if str(state.get("player_x_id")) == str(user.internal_id) else "O"
-    state["you_won"] = (
-        state["winner_id"] == str(user.internal_id) if state["winner_id"] else None
-    )
+    _personalize(state, user)
     return state

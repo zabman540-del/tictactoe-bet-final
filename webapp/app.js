@@ -22,7 +22,7 @@ function authHeaders(json = true) {
 }
 
 async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(false) });
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(false), cache: "no-store" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `Error ${res.status}`);
   return body;
@@ -309,6 +309,7 @@ async function renderBoard(matchId) {
       <span>${state.stake_amount} ETB</span>
       <span id="board-turn-label">Loading…</span>
     </div>
+    <div id="board-debug-line" class="center-note" style="font-size:11px;opacity:.6;margin:-6px 0 8px"></div>
     <div id="${isCheckers ? "checkers-board" : "tictactoe-board"}"></div>
     <div id="board-result-banner" class="hidden">
       <div id="board-result-text"></div>
@@ -329,7 +330,14 @@ async function renderBoard(matchId) {
 
   function renderState(s) {
     const turnLabel = document.getElementById("board-turn-label");
-    const myTurn = s.status === "active" && s.current_turn === s.you_are;
+    const myTurn = typeof s.is_your_turn === "boolean"
+      ? s.is_your_turn
+      : (s.status === "active" && s.current_turn === s.you_are);
+    const dbg = document.getElementById("board-debug-line");
+    if (dbg) {
+      const t = (v) => String(v || "").slice(-4);
+      dbg.textContent = `you=${s.you_are} turn=${s.current_turn} status=${s.status} | me …${t(s.you_id)} X …${t(s.player_x_id)} O …${t(s.player_o_id)}`;
+    }
     turnLabel.textContent = s.status !== "active" ? "Game over" : myTurn ? "Your turn" : "Opponent's turn";
     turnLabel.classList.toggle("your-turn", myTurn);
 
@@ -588,9 +596,11 @@ function renderInviteStakePicker(friendId) {
         fd.append("friend_id", friendId);
         fd.append("stake_amount", btn.dataset.stake);
         fd.append("game_type", selectedGame);
-        await apiPostForm("/webapp/friends/invite", fd);
+        const inv = await apiPostForm("/webapp/friends/invite", fd);
         tg.HapticFeedback.notificationOccurred("success");
-        tg.showAlert("Invite sent! Waiting for them to accept.");
+        tg.showAlert(inv && inv.notified === false
+          ? "Invite saved, but Telegram could not deliver it. Ask your friend to open the bot and send /start, then invite again."
+          : "Invite sent to their Telegram chat with the bot! Waiting for them to accept.");
         window.location.hash = "#/home";
       } catch (err) {
         tg.showAlert(err.message);

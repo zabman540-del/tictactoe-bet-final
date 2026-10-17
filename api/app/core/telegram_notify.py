@@ -14,16 +14,21 @@ button taps on it back to the bot's normal polling loop exactly like
 any other message, so its existing handlers just work.
 """
 
+import logging
 import os
 import httpx
+
+logger = logging.getLogger("tictactoe-bet")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 
-async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> bool:
+    """Returns True only if Telegram accepted the message."""
     if not BOT_TOKEN:
-        return  # Misconfigured — fail quietly rather than crash the caller's request.
+        logger.error("telegram_notify: BOT_TOKEN is not set on the API service.")
+        return False
 
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup:
@@ -31,9 +36,14 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
 
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            await client.post(f"{TELEGRAM_API}/sendMessage", json=payload)
+            res = await client.post(f"{TELEGRAM_API}/sendMessage", json=payload)
         except Exception:
-            pass  # Best-effort — the invite/challenge itself is already saved either way.
+            logger.exception("telegram_notify: could not reach Telegram.")
+            return False
+    if res.status_code != 200:
+        logger.error("telegram_notify: Telegram refused message to %s: %s %s", chat_id, res.status_code, res.text[:200])
+        return False
+    return True
 
 
 def challenge_response_markup() -> dict:
