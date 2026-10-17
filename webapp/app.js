@@ -877,7 +877,7 @@ function drawMinesSetup(rules) {
       </p>
       <div class="field"><label>Bet (ETB)</label><input id="m-bet" type="number" inputmode="decimal" value="10" /></div>
       <div class="field"><label>Mines</label>
-        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines} 💣 / ${o.safe} safe</button>`).join("")}</div>
+        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines === 5 ? "Low odds" : "Medium odds"}<br>${o.mines} 💣 · ${o.safe} safe</button>`).join("")}</div>
       </div>
       <div id="m-table" class="friend-username" style="margin:8px 0"></div>
       <div class="error-text" id="m-err"></div>

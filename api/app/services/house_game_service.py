@@ -20,13 +20,13 @@ from app.models.models import GameRound
 from app.services.wallet_service import _get_locked_wallet, _write_ledger_row
 
 HOUSE_EDGE = Decimal("0.03")          # Dice edge, disclosed to players
-MINES_EDGE = Decimal("0.08")          # Mines edge, disclosed to players
+MINES_EDGE = Decimal("0.10")          # Mines edge, disclosed to players
 DICE_ENABLED = False                  # Dice is "coming soon"; set True to open it
 MIN_BET = Decimal("5")
 MAX_BET = Decimal("500")
 MAX_PAYOUT = Decimal("2000")          # per-round cap; Mines auto cashes out when reached
 GRID = 25
-MINE_OPTIONS = [3, 5, 10, 20]
+MINE_OPTIONS = [5, 10]            # 5 mines = low odds, 10 mines = medium odds
 DICE_MIN_CHANCE = 2                   # percent
 DICE_MAX_CHANCE = 95
 
