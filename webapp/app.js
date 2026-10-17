@@ -197,11 +197,11 @@ async function renderPlayChooseGame() {
       <button class="btn" id="play-ttt">✕⭕ Tic-Tac-Toe</button>
       <button class="btn secondary" id="play-checkers">🔴 Checkers</button>
       <button class="btn secondary" id="play-mines">💣 Mines</button>
-      <button class="btn secondary" id="play-dice">🎲 Dice</button>
+      <button class="btn secondary" id="play-dice" disabled style="opacity:.55">🎲 Dice — coming soon</button>
     </div>
   `;
   document.getElementById("play-mines").addEventListener("click", renderMines);
-  document.getElementById("play-dice").addEventListener("click", renderDice);
+  
   document.getElementById("play-ttt").addEventListener("click", () => renderPlayChooseStake("tictactoe"));
   document.getElementById("play-checkers").addEventListener("click", () => renderPlayChooseStake("checkers"));
 

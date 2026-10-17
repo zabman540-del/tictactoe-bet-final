@@ -19,10 +19,12 @@ from sqlalchemy.orm import Session
 from app.models.models import GameRound
 from app.services.wallet_service import _get_locked_wallet, _write_ledger_row
 
-HOUSE_EDGE = Decimal("0.03")          # 3%, disclosed to players
+HOUSE_EDGE = Decimal("0.03")          # Dice edge, disclosed to players
+MINES_EDGE = Decimal("0.08")          # Mines edge, disclosed to players
+DICE_ENABLED = False                  # Dice is "coming soon"; set True to open it
 MIN_BET = Decimal("5")
 MAX_BET = Decimal("500")
-MAX_PAYOUT = Decimal("5000")          # per-round cap; Mines auto cashes out when reached
+MAX_PAYOUT = Decimal("2000")          # per-round cap; Mines auto cashes out when reached
 GRID = 25
 MINE_OPTIONS = [3, 5, 10, 20]
 DICE_MIN_CHANCE = 2                   # percent
@@ -60,7 +62,7 @@ def mines_multiplier(mines: int, safe_picked: int) -> Decimal:
         return Decimal("1")
     p_num = comb(GRID - mines, safe_picked)
     p_den = comb(GRID, safe_picked)
-    m = (Decimal(p_den) / Decimal(p_num)) * (1 - HOUSE_EDGE)
+    m = (Decimal(p_den) / Decimal(p_num)) * (1 - MINES_EDGE)
     return m.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
 
@@ -71,7 +73,7 @@ def mines_table(mines: int) -> list:
 
 def mines_rules() -> dict:
     return {
-        "house_edge_percent": str(HOUSE_EDGE * 100),
+        "house_edge_percent": str(MINES_EDGE * 100),
         "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
         "options": [{"mines": m, "safe": GRID - m, "table": mines_table(m)} for m in MINE_OPTIONS],
     }
@@ -210,6 +212,8 @@ def dice_quote(direction: str, target: int) -> dict:
 
 
 def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
+    if not DICE_ENABLED:
+        raise GameError("Dice is coming soon.")
     bet = _check_bet(bet)
     q = dice_quote(direction, target)
     mult = Decimal(q["multiplier"])

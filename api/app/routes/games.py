@@ -41,7 +41,7 @@ def _run(fn, db):
 def rules(response: Response):
     response.headers["Cache-Control"] = "no-store"
     return {"mines": hg.mines_rules(),
-            "dice": {"house_edge_percent": str(hg.HOUSE_EDGE * 100), "min_bet": str(hg.MIN_BET),
+            "dice": {"enabled": hg.DICE_ENABLED, "house_edge_percent": str(hg.HOUSE_EDGE * 100), "min_bet": str(hg.MIN_BET),
                      "max_bet": str(hg.MAX_BET), "max_payout": str(hg.MAX_PAYOUT),
                      "min_chance": hg.DICE_MIN_CHANCE, "max_chance": hg.DICE_MAX_CHANCE}}
 
