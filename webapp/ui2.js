@@ -43,6 +43,23 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+/* ---------------- safety net: never leave a skeleton on screen forever ---------------- */
+
+function showFatal(msg) {
+  screenEl.innerHTML = `<div class="card"><h2>Something went wrong</h2><p class="error-text" style="word-break:break-word">${esc(msg)}</p>
+    <button class="btn" id="fatal-reload">Reload</button><button class="btn secondary" id="fatal-home">Home</button></div>`;
+  document.getElementById("fatal-reload").addEventListener("click", () => location.reload());
+  document.getElementById("fatal-home").addEventListener("click", () => { window.location.hash = "#/home"; router(); });
+}
+const _stuck = () => !!screenEl.querySelector(".spinner");
+window.addEventListener("unhandledrejection", (e) => { if (_stuck()) showFatal(String((e.reason && e.reason.message) || e.reason)); });
+window.addEventListener("error", (e) => { if (_stuck()) showFatal(String(e.message)); });
+setInterval(() => {
+  if (!_stuck()) { window._stuckSince = 0; return; }
+  window._stuckSince = window._stuckSince || Date.now();
+  if (Date.now() - window._stuckSince > 12000) { window._stuckSince = 0; showFatal("This is taking too long. Check your connection and reload."); }
+}, 2000);
+
 /* ---------------- top bar ---------------- */
 
 async function refreshTopbar() {
@@ -321,6 +338,7 @@ renderBoard = async function (matchId) {
   catch (e) { screenEl.innerHTML = `<div class="card"><p class="error-text">${esc(e.message)}</p><button class="btn secondary" onclick="location.hash='#/home'">Back</button></div>`; return; }
   if (s.game_type === "checkers") return _oldBoard(matchId);
 
+  if (!s.you_are || !s.you_name) { showFatal("The server is running an old version (match data is missing). Redeploy the API with the latest files."); return; }
   const mineMark = s.you_are, oppMark = s.you_are === "X" ? "O" : "X";
   const pot = Number(s.stake_amount) * 2;
   const tgPhoto = tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.photo_url;

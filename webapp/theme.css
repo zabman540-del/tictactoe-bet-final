@@ -4,11 +4,12 @@
   --text: #eef5f0; --hint: #86998d; --green: #19d36f; --green2: #0fa456; --gold: #ffc83d; --red: #ff5b6b;
 }
 body { background: var(--bg) !important; color: var(--text) !important; }
-#app { padding-top: 56px; }
+:root { --safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)); }
+#app { padding-top: calc(56px + var(--safe-top)); }
 #screen { padding: 14px 14px 96px; max-width: 520px; margin: 0 auto; width: 100%; }
 
 /* top bar */
-#topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 30; display: flex; align-items: center;
+#topbar { position: fixed; top: 0; left: 0; right: 0; height: calc(52px + var(--safe-top)); padding-top: var(--safe-top) !important; box-sizing: border-box; z-index: 30; display: flex; align-items: center;
   justify-content: space-between; padding: 0 14px; background: rgba(9,15,12,.92); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line); }
 .logo { font-weight: 900; letter-spacing: 2px; font-size: 17px; }

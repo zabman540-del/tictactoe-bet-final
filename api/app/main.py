@@ -89,7 +89,7 @@ os.makedirs("/app/uploads", exist_ok=True)
 @app.get("/health")
 def health_check():
     """Simple endpoint to confirm the API is alive - useful for Docker health checks."""
-    return {"status": "ok", "build": "turnfix-4"}
+    return {"status": "ok", "build": "app-v2-2"}
 
 
 async def timeout_checker_loop():
