@@ -48,7 +48,13 @@ def _get_webapp_user(db: Session, x_telegram_init_data: str = Header(None)):
         tg_user = verify_init_data(x_telegram_init_data)
     except InvalidInitDataError as e:
         raise HTTPException(status_code=401, detail=str(e))
-    return get_user_or_404(db, tg_user["id"])
+    user = get_user_or_404(db, tg_user["id"])
+    try:
+        from app.services.user_service import touch_user
+        touch_user(db, user)
+    except Exception:
+        db.rollback()
+    return user
 
 
 def _personalize(state: dict, user) -> dict:
@@ -149,6 +155,22 @@ def get_match_webapp(
         raise HTTPException(status_code=403, detail="You're not a player in this match.")
 
     state = _personalize(_match_response(match), user)
+    # names + timer for the match screen
+    from datetime import datetime, timezone
+    from app.models.models import User as _U
+    def _nm(u):
+        return (u.full_name or u.telegram_username or "Player") if u else "Player"
+    x = db.query(_U).filter(_U.internal_id == match.player_x_id).first()
+    o = db.query(_U).filter(_U.internal_id == match.player_o_id).first()
+    me_is_x = state["you_are"] == "X"
+    state["you_name"] = _nm(x if me_is_x else o)
+    state["opponent_name"] = _nm(o if me_is_x else x)
+    state["opponent_id"] = str(match.player_o_id if me_is_x else match.player_x_id)
+    state["fee"] = str(match.platform_fee)
+    state["timeout_seconds"] = match.move_timeout_seconds
+    if match.status == "active" and match.last_move_at:
+        elapsed = (datetime.now(timezone.utc) - match.last_move_at).total_seconds()
+        state["seconds_left"] = max(0, int(match.move_timeout_seconds - elapsed))
     return state
 
 

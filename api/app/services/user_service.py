@@ -86,3 +86,12 @@ def get_user_or_404(db: Session, telegram_user_id: int) -> User:
     if user is None:
         raise HTTPException(status_code=404, detail="User not registered. Send /start first.")
     return user
+
+
+def touch_user(db, user):
+    """Marks the player as 'online now' (at most once a minute) for the live players counter."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    if user.last_seen_at is None or now - user.last_seen_at > timedelta(seconds=60):
+        user.last_seen_at = now
+        db.commit()

@@ -15,9 +15,9 @@ Flow:
 """
 
 from aiogram import Router, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 from states import RegistrationStates
 from keyboards import main_menu_keyboard, open_app_keyboard
@@ -25,39 +25,24 @@ from keyboards import main_menu_keyboard, open_app_keyboard
 router = Router()
 
 
-@router.message(CommandStart())
-async def cmd_start(message: Message, api, state: FSMContext, settings):
-    # Try a "silent" check first: if this Telegram ID is already
-    # registered, the backend just returns their existing account
-    # and we skip straight to the menu instead of asking again.
-    # We do this by attempting registration with no name/phone —
-    # the backend only requires them for BRAND NEW accounts.
-    try:
-        await api.register_user(
-            telegram_user_id=message.from_user.id,
-            username=message.from_user.username,
-        )
-        # If this succeeded, the user already existed — welcome them back.
-        await message.answer(
-            "👋 Welcome back! Tap below to open Nova Bet.",
-            reply_markup=open_app_keyboard(settings.public_api_base_url),
-        )
-        return
-    except Exception:
-        # NOTE: this catches BOTH "new user, name/phone required" AND
-        # any real network/server error. For now that's an acceptable
-        # simplification (worst case, a returning user is asked to
-        # re-enter their phone, which just fails gracefully with
-        # "already registered" and no harm done). If this becomes
-        # annoying in testing, we can make api_client raise a more
-        # specific error type to tell the two cases apart.
-        pass
+def _app_kb(settings, payload: str | None = None) -> InlineKeyboardMarkup:
+    url = f"{settings.public_api_base_url}/app-ui/"
+    text = "🎰 Play Nova Bet"
+    if payload and payload.startswith("rps_"):
+        url += f"#/rps/{payload[4:]}"
+        text = "⚔️ Open challenge"
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))]])
 
-    await state.set_state(RegistrationStates.entering_name)
+
+@router.message(CommandStart())
+async def cmd_start(message: Message, command: CommandObject, state: FSMContext, settings):
+    """The bot is just the front door: everything (sign-up, wallet, games) lives in the app."""
+    await state.clear()
     await message.answer(
-        "👋 Welcome to Nova Bet!\n\n"
-        "Let's set up your account. What's your full name?"
+        "🎰 <b>NOVA BET</b>\nCasino games and 1v1 matches with real players.",
+        reply_markup=ReplyKeyboardRemove(),
     )
+    await message.answer("Tap below to open the app 👇", reply_markup=_app_kb(settings, command.args))
 
 
 @router.message(RegistrationStates.entering_name)

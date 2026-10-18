@@ -68,6 +68,7 @@ def public_state(db: Session, g: RpsGame, user_id) -> dict:
     out = {
         "game_id": str(g.id), "status": g.status, "stake": str(g.stake_amount),
         "fee": str(fee_for(g.stake_amount)),
+        "opponent_id": str(g.opponent_id if is_creator else g.creator_id) if (g.opponent_id if is_creator else g.creator_id) else None,
         "you_are": "creator" if is_creator else ("opponent" if is_opp else "viewer"),
         "creator_name": _name(db, g.creator_id), "opponent_name": _name(db, g.opponent_id),
         "my_move": my_move,

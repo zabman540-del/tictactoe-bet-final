@@ -42,7 +42,13 @@ def _webapp_identity(x_telegram_init_data: str = Header(None)) -> dict:
 
 def _webapp_user(db: Session, x_telegram_init_data: str = Header(None)) -> User:
     tg_user = _webapp_identity(x_telegram_init_data)
-    return get_user_or_404(db, tg_user["id"])
+    user = get_user_or_404(db, tg_user["id"])
+    try:
+        from app.services.user_service import touch_user
+        touch_user(db, user)
+    except Exception:
+        db.rollback()
+    return user
 
 
 def _wallet_dict(wallet) -> dict:

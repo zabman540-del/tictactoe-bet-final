@@ -53,6 +53,14 @@ async def main():
     dp.include_router(withdraw.router)
     dp.include_router(info.router)
 
+    try:
+        from aiogram.types import MenuButtonWebApp, WebAppInfo, BotCommand
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+            text="Play", web_app=WebAppInfo(url=f"{settings.public_api_base_url}/app-ui/")))
+        await bot.set_my_commands([BotCommand(command="start", description="Open Nova Bet")])
+    except Exception:
+        logger.exception("Could not set the menu button")
+
     logger.info("Bot starting...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

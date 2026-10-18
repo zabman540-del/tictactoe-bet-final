@@ -839,8 +839,7 @@ async function renderProfile() {
 }
 
 /* ---------------- Boot ---------------- */
-
-router();
+/* router() is started from ui2.js (loaded after this file) */
 
 
 /* ---------------- House games: Mines & Dice ---------------- */
@@ -1093,7 +1092,12 @@ async function renderRpsGame(gameId) {
       else res = `❌ You lost ${s.stake} ETB.${s.reason === "forfeit" ? " (you didn't pick in time)" : ""}`;
       body = `<div style="text-align:center;font-size:20px;margin:12px 0">You: ${mi}<br>Opponent: ${ti}</div>
         <p class="center-note" style="font-size:16px">${res}</p>
-        <button class="btn" id="r-again">Play again</button>`;
+        ${s.opponent_id ? `<button class="btn" id="r-rematch">🔁 Rematch (${s.stake} ETB)</button>` : ""}
+        <button class="btn secondary" id="r-again">Back</button>`;
+      if (window.onRpsFinished && !window._rpsShown?.[s.game_id]) {
+        (window._rpsShown = window._rpsShown || {})[s.game_id] = true;
+        setTimeout(() => window.onRpsFinished(s), 50);
+      }
     } else {
       body = `<p class="center-note">${s.status === "cancelled" ? "Challenge cancelled. Stake refunded." : "Challenge expired. Stake refunded."}</p>
         <button class="btn" id="r-again">Back</button>`;
@@ -1109,7 +1113,14 @@ async function renderRpsGame(gameId) {
     screenEl.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => post("pick", { move: b.dataset.m })));
     const j = document.getElementById("r-join"); if (j) j.addEventListener("click", () => post("join"));
     const c = document.getElementById("r-cancel"); if (c) c.addEventListener("click", () => post("cancel"));
-    const a = document.getElementById("r-again"); if (a) a.addEventListener("click", () => { window.location.hash = "#/rps"; });
+    const a = document.getElementById("r-again"); if (a) a.addEventListener("click", () => { window.location.hash = "#/play"; });
+    const rm = document.getElementById("r-rematch");
+    if (rm) rm.addEventListener("click", async () => {
+      try {
+        const r = await apiPostJson("/webapp/rps/create", { stake: s.stake, invite_user_id: s.opponent_id });
+        window.location.hash = `#/rps/${r.game_id}`;
+      } catch (e) { err(e); }
+    });
   };
   try { draw(await apiGet(`/webapp/rps/${gameId}`)); } catch (e) { tg.showAlert(e.message); return renderRps(); }
   pollTimer = setInterval(async () => {
