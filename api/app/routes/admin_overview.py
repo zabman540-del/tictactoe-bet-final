@@ -13,7 +13,7 @@ Earnings:
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, cast, Date
 from sqlalchemy.orm import Session
 
@@ -47,6 +47,15 @@ def _name(u: User) -> str:
 
 @router.get("/admin/overview")
 def overview(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin)):
+    try:
+        return _overview(db)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Overview error: {type(e).__name__}: {str(e)[:300]}")
+
+
+def _overview(db: Session):
+
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(days=1)
     start14 = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -104,17 +113,23 @@ def overview(db: Session = Depends(get_db), admin: Admin = Depends(get_current_a
     days = [(start14 + timedelta(days=i)).date() for i in range(14)]
     series = {d.isoformat(): {"ttt": Decimal(0), "rps": Decimal(0), "chicken": Decimal(0), "mines": Decimal(0)} for d in days}
 
-    for d, v in db.query(cast(Match.settled_at, Date), func.sum(Match.platform_fee)).filter(
-            Match.game_type == "tictactoe", Match.status.in_(TTT_FEE_STATUSES), Match.settled_at >= start14).group_by(1):
-        if d and d.isoformat() in series: series[d.isoformat()]["ttt"] = _d(v)
-    for d, v in db.query(cast(RpsGame.settled_at, Date), func.sum(RpsGame.platform_fee)).filter(
-            RpsGame.status.in_(RPS_FEE_STATUSES), RpsGame.settled_at >= start14).group_by(1):
-        if d and d.isoformat() in series: series[d.isoformat()]["rps"] = _d(v)
-    for g, d, bet, paid in db.query(GameRound.game, cast(GameRound.settled_at, Date), func.sum(GameRound.bet_amount),
+    m_day = cast(Match.settled_at, Date)
+    for d, v in db.query(m_day, func.sum(Match.platform_fee)).filter(
+            Match.game_type == "tictactoe", Match.status.in_(TTT_FEE_STATUSES), Match.settled_at >= start14).group_by(m_day).all():
+        if d and d.isoformat() in series:
+            series[d.isoformat()]["ttt"] = _d(v)
+    r_day = cast(RpsGame.settled_at, Date)
+    for d, v in db.query(r_day, func.sum(RpsGame.platform_fee)).filter(
+            RpsGame.status.in_(RPS_FEE_STATUSES), RpsGame.settled_at >= start14).group_by(r_day).all():
+        if d and d.isoformat() in series:
+            series[d.isoformat()]["rps"] = _d(v)
+    g_day = cast(GameRound.settled_at, Date)
+    for g, d, bet, paid in db.query(GameRound.game, g_day, func.sum(GameRound.bet_amount),
                                     func.sum(GameRound.payout_amount)).filter(
             GameRound.status != "active", GameRound.game.in_(["chicken", "mines"]),
-            GameRound.settled_at >= start14).group_by(GameRound.game, 2):
-        if d and d.isoformat() in series: series[d.isoformat()][g] = _d(bet) - _d(paid)
+            GameRound.settled_at >= start14).group_by(GameRound.game, g_day).all():
+        if d and d.isoformat() in series:
+            series[d.isoformat()][g] = _d(bet) - _d(paid)
     daily = [{"date": k, **{g: str(v) for g, v in vals.items()}} for k, vals in series.items()]
 
     # ---------- queues ----------
