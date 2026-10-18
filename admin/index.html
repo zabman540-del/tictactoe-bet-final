@@ -46,7 +46,7 @@ async function login() {
         localStorage.setItem("admin_token", data.token);
         localStorage.setItem("admin_role", data.role);
         localStorage.setItem("admin_username", data.username);
-        window.location.href = "/admin-panel/dashboard.html";
+        window.location.href = "/admin-panel/overview.html";
     } catch (e) {
         errorBox.textContent = "Could not reach the server. Is the API running?";
     }

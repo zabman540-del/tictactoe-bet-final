@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overview — Nova Bet Admin</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .container{max-width:1180px}
+  .hero{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;margin-bottom:16px}
+  .big{background:linear-gradient(135deg,#0f3d26,#1a2032 70%);border:1px solid #2f7a4f;border-radius:14px;padding:20px}
+  .big .v{font-size:38px;font-weight:900;color:#ffd23f;letter-spacing:.5px}
+  .big .l{color:#9fb3a8;font-size:13px;text-transform:uppercase;letter-spacing:1px}
+  .kpi{background:#1a2032;border:1px solid #2a3348;border-radius:14px;padding:16px}
+  .kpi .v{font-size:26px;font-weight:800}
+  .kpi .l{color:#8b95ad;font-size:12px;text-transform:uppercase;letter-spacing:.8px;margin-top:2px}
+  .kpi .s{color:#8b95ad;font-size:12px;margin-top:6px}
+  .green{color:#34d17a}.red{color:#ff6b6b}.gold{color:#ffd23f}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+  .game{background:#1a2032;border:1px solid #2a3348;border-radius:14px;padding:16px;position:relative;overflow:hidden}
+  .game .ic{font-size:30px}.game h3{margin:6px 0 2px;font-size:15px}
+  .game .earn{font-size:26px;font-weight:900;margin:6px 0}
+  .game .row{display:flex;justify-content:space-between;color:#8b95ad;font-size:12px;margin-top:4px}
+  .game .row b{color:#e6e9ef}
+  .game .bar{height:5px;border-radius:4px;background:#0f1420;margin-top:10px;overflow:hidden}
+  .game .bar i{display:block;height:100%}
+  .two{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:16px}
+  .two .card{margin:0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#8b95ad;margin-bottom:8px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+  table.q{width:100%;border-collapse:collapse;font-size:13px}
+  table.q td,table.q th{padding:8px 6px;border-bottom:1px solid #2a3348;text-align:left}
+  table.q th{color:#8b95ad;font-weight:600;font-size:11px;text-transform:uppercase}
+  .pill{display:inline-block;background:#3b2f06;color:#ffd23f;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700}
+  .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .hd a{color:#6aa8ff;font-size:13px;text-decoration:none}
+  .upd{color:#667089;font-size:12px;text-align:right;margin-bottom:6px}
+  @media(max-width:900px){.hero,.grid4,.two,.grid3{grid-template-columns:1fr 1fr}.two{grid-template-columns:1fr}}
+  @media(max-width:560px){.hero,.grid4,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav">
+    <a href="overview.html" class="active">🏠 Overview</a>
+    <a href="dashboard.html">📊 Dashboard</a>
+    <a href="deposits.html">➕ Deposits</a>
+    <a href="withdrawals.html">💸 Withdrawals</a>
+    <a href="users.html">👤 Users</a>
+    <button class="secondary" style="margin-left:auto" onclick="logout()">Log out</button>
+  </div>
+
+  <h1>🏠 Nova Bet — Overview</h1>
+  <div class="upd" id="upd">Loading…</div>
+  <div id="root"><div class="card">Loading…</div></div>
+</div>
+
+<script src="api.js"></script>
+<script>
+requireLogin();
+const COLORS = { ttt: "#4da3ff", rps: "#b980ff", chicken: "#ffb020", mines: "#34d17a" };
+const ETB = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ETB";
+const sign = (v) => (Number(v) >= 0 ? "green" : "red");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ago = (iso) => { const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
+
+function chart(daily) {
+  const keys = ["ttt", "rps", "chicken", "mines"];
+  const W = 640, H = 220, pad = 30, bw = (W - pad * 2) / daily.length;
+  const tot = daily.map((d) => keys.reduce((a, k) => a + Number(d[k]), 0));
+  const pos = Math.max(1, ...daily.map((d) => keys.reduce((a, k) => a + Math.max(0, Number(d[k])), 0)));
+  const neg = Math.min(0, ...daily.map((d) => keys.reduce((a, k) => a + Math.min(0, Number(d[k])), 0)));
+  const range = pos - neg, zero = 10 + (H - 40) * (pos / range), sc = (H - 40) / range;
+  let bars = "";
+  daily.forEach((d, i) => {
+    let up = zero, dn = zero; const x = pad + i * bw + 4;
+    keys.forEach((k) => {
+      const v = Number(d[k]); if (!v) return; const h = Math.abs(v) * sc;
+      if (v > 0) { up -= h; bars += `<rect x="${x}" y="${up}" width="${bw - 8}" height="${h}" fill="${COLORS[k]}" rx="2"/>`; }
+      else { bars += `<rect x="${x}" y="${dn}" width="${bw - 8}" height="${h}" fill="${COLORS[k]}" opacity=".55" rx="2"/>`; dn += h; }
+    });
+    bars += `<text x="${x + (bw - 8) / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#667089">${d.date.slice(8)}</text>`;
+    bars += `<title>${d.date}: ${tot[i].toFixed(2)} ETB</title>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%"><line x1="${pad}" x2="${W - pad}" y1="${zero}" y2="${zero}" stroke="#2a3348"/>${bars}
+    <text x="${pad - 4}" y="14" font-size="10" fill="#667089" text-anchor="end">${pos.toFixed(0)}</text></svg>`;
+}
+
+function render(o) {
+  const m = o.money, maxE = Math.max(1, ...o.games.map((g) => Math.abs(Number(g.earned))));
+  const games = o.games.map((g) => `
+    <div class="game"><div class="ic">${g.icon}</div><h3>${g.label}</h3>
+      <div class="earn ${sign(g.earned)}">${ETB(g.earned)}</div>
+      <div class="row"><span>Last 24h</span><b class="${sign(g.earned_24h)}">${ETB(g.earned_24h)}</b></div>
+      <div class="row"><span>Rounds</span><b>${g.rounds} <span style="color:#667089">(${g.rounds_24h} today)</span></b></div>
+      <div class="row"><span>Money played</span><b>${ETB(g.volume)}</b></div>
+      <div class="bar"><i style="width:${Math.max(3, Math.abs(Number(g.earned)) / maxE * 100)}%;background:${COLORS[g.key]}"></i></div>
+    </div>`).join("");
+
+  const dep = o.pending_deposits.map((d) => `<tr><td>${esc(d.user)}</td><td><b>${ETB(d.amount)}</b></td><td>${esc(d.reference)}</td><td>${ago(d.created_at)}</td></tr>`).join("");
+  const wd = o.pending_withdrawals.map((w) => `<tr><td>${esc(w.user)}</td><td><b>${ETB(w.amount)}</b></td><td>${esc(w.details)}</td><td>${ago(w.created_at)}</td></tr>`).join("");
+
+  document.getElementById("root").innerHTML = `
+    <div class="hero">
+      <div class="big"><div class="l">Total earned from games</div><div class="v">${ETB(o.earned_total)}</div>
+        <div style="margin-top:6px" class="${sign(o.earned_24h)}">${Number(o.earned_24h) >= 0 ? "▲" : "▼"} ${ETB(o.earned_24h)} in the last 24h</div></div>
+      <div class="kpi"><div class="v">${o.users.total}</div><div class="l">Players</div>
+        <div class="s"><span class="green">● ${o.users.online} online</span> · +${o.users.new_24h} new today</div></div>
+      <div class="kpi"><div class="v ${sign(m.net_cash)}">${ETB(m.net_cash)}</div><div class="l">Net cash (in − out)</div>
+        <div class="s">Players' wallets hold ${ETB(m.players_hold)}</div></div>
+    </div>
+
+    <div class="grid4">${games}</div>
+
+    <div class="grid3">
+      <div class="kpi"><div class="v green">${ETB(m.deposits_approved)}</div><div class="l">Deposits approved</div></div>
+      <div class="kpi"><div class="v red">${ETB(m.withdrawals_paid)}</div><div class="l">Withdrawals paid</div></div>
+      <div class="kpi"><div class="v gold">${m.deposits_pending_count + m.withdrawals_pending_count}</div><div class="l">Requests waiting</div>
+        <div class="s">${m.deposits_pending_count} deposits (${ETB(m.deposits_pending_amount)}) · ${m.withdrawals_pending_count} withdrawals (${ETB(m.withdrawals_pending_amount)})</div></div>
+    </div>
+
+    <div class="two">
+      <div class="card"><h3>Earnings — last 14 days</h3>
+        <div class="legend">${[["ttt", "Tic-Tac-Toe"], ["rps", "Rock Paper Scissors"], ["chicken", "Chicken Road"], ["mines", "Mines"]].map(([k, n]) => `<span><i style="background:${COLORS[k]}"></i>${n}</span>`).join("")}</div>
+        ${chart(o.daily)}
+        <div class="s" style="color:#667089;font-size:12px;margin-top:6px">Tic-Tac-Toe and RPS = platform fees. Chicken Road and Mines = bets minus payouts (can be negative on a lucky day).</div></div>
+      <div class="card"><h3>Players</h3>
+        <table class="q"><tr><th>Wallet total held</th><td><b>${ETB(m.players_hold)}</b></td></tr>
+        <tr><th>Deposits pending</th><td>${m.deposits_pending_count} · ${ETB(m.deposits_pending_amount)}</td></tr>
+        <tr><th>Withdrawals pending</th><td>${m.withdrawals_pending_count} · ${ETB(m.withdrawals_pending_amount)}</td></tr></table>
+        <div class="s" style="color:#667089;font-size:12px;margin-top:10px">Keep your real Telebirr balance above what players hold, so every withdrawal can be paid.</div></div>
+    </div>
+
+    <div class="two" style="grid-template-columns:1fr 1fr">
+      <div class="card"><div class="hd"><h3 style="margin:0">➕ Deposit requests <span class="pill">${m.deposits_pending_count}</span></h3><a href="deposits.html">Open all →</a></div>
+        ${dep ? `<table class="q"><tr><th>User</th><th>Amount</th><th>Ref</th><th>Age</th></tr>${dep}</table>` : `<div style="color:#667089">Nothing waiting 🎉</div>`}</div>
+      <div class="card"><div class="hd"><h3 style="margin:0">💸 Withdrawal requests <span class="pill">${m.withdrawals_pending_count}</span></h3><a href="withdrawals.html">Open all →</a></div>
+        ${wd ? `<table class="q"><tr><th>User</th><th>Amount</th><th>Telebirr</th><th>Age</th></tr>${wd}</table>` : `<div style="color:#667089">Nothing waiting 🎉</div>`}</div>
+    </div>`;
+  document.getElementById("upd").textContent = "Updated " + new Date().toLocaleTimeString() + " · refreshes every 20s";
+}
+
+async function load() {
+  try { render(await apiRequest("/admin/overview")); }
+  catch (e) { document.getElementById("root").innerHTML = `<div class="card error">Failed to load: ${esc(e.message)}</div>`; }
+}
+load(); setInterval(load, 20000);
+</script>
+</body>
+</html>
