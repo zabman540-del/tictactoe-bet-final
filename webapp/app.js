@@ -673,11 +673,17 @@ function renderDepositForm(content) {
   content.innerHTML = `
     <div class="card">
       <h2>➕ Deposit</h2>
+      <div class="card" style="background:rgba(255,200,40,.08);border:1px solid rgba(255,200,40,.35);margin:0 0 12px">
+        <div class="center-note" style="text-align:left">Send money by <b>Telebirr</b> to:</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:1px;margin:4px 0" id="tb-num">…</div>
+        <div style="margin-bottom:8px">Name: <b id="tb-name">…</b></div>
+        <button class="btn secondary" id="tb-copy" type="button">📋 Copy number</button>
+        <div class="center-note" style="text-align:left;margin-top:8px">Then enter the amount, the Telebirr transaction number and a screenshot below.</div>
+      </div>
       <div class="field">
         <label>Payment method</label>
         <select id="dep-method">
           <option value="telebirr">📱 Telebirr</option>
-          <option value="nib_bank">🏦 NIB Bank</option>
         </select>
       </div>
       <div class="field">
@@ -697,6 +703,13 @@ function renderDepositForm(content) {
       <button class="btn" id="dep-submit">Submit deposit</button>
     </div>
   `;
+  apiGet("/webapp/config").then((c) => {
+    document.getElementById("tb-num").textContent = c.telebirr_number || "—";
+    document.getElementById("tb-name").textContent = c.telebirr_name || "—";
+    document.getElementById("tb-copy").addEventListener("click", () => {
+      try { navigator.clipboard.writeText(c.telebirr_number); tg.showAlert("Number copied"); } catch (e) { tg.showAlert(c.telebirr_number); }
+    });
+  }).catch(() => {});
   const fileLabel = document.getElementById("dep-file-label");
   const fileInput = document.getElementById("dep-file");
   fileInput.addEventListener("change", () => {
@@ -741,7 +754,6 @@ function renderWithdrawForm(content) {
         <label>Payment method</label>
         <select id="wd-method">
           <option value="telebirr">📱 Telebirr</option>
-          <option value="nib_bank">🏦 NIB Bank</option>
         </select>
       </div>
       <div class="field">
@@ -750,7 +762,7 @@ function renderWithdrawForm(content) {
       </div>
       <div class="field">
         <label>Payment details</label>
-        <input id="wd-details" placeholder="Phone number / account number" />
+        <input id="wd-details" placeholder="Your Telebirr number (09…)" />
       </div>
       <div class="error-text" id="wd-error"></div>
       <button class="btn" id="wd-submit">Request withdrawal</button>
@@ -1148,28 +1160,70 @@ const crLaneX = (i) => i * CR.LW;                 // left edge of lane i
 const crCenterX = (i) => i * CR.LW + CR.LW / 2;   // centre of lane i
 const crCam = (step) => Math.max(0, crCenterX(step) - 105);
 
+/* ---------- sound (WebAudio, no files needed) ---------- */
+const CRSound = (() => {
+  let ctx = null, muted = false;
+  try { muted = localStorage.getItem("nb_mute") === "1"; } catch (e) {}
+  const ensure = () => {
+    if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (ctx && ctx.state === "suspended") { try { ctx.resume(); } catch (e) {} }
+    return ctx;
+  };
+  const tone = (f, t0, dur, type, vol, f2) => {
+    if (muted || !ensure()) return;
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + t0;
+    o.type = type || "sine"; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.18, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + dur + 0.05);
+  };
+  const noise = (t0, dur, vol, lp) => {
+    if (muted || !ensure()) return;
+    const n = Math.floor(ctx.sampleRate * dur), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter(), t = ctx.currentTime + t0;
+    f.type = "lowpass"; f.frequency.value = lp || 1200; src.buffer = buf; g.gain.value = vol || 0.3;
+    src.connect(f); f.connect(g); g.connect(ctx.destination); src.start(t);
+  };
+  return {
+    unlock: ensure,
+    get muted() { return muted; },
+    toggle() { muted = !muted; try { localStorage.setItem("nb_mute", muted ? "1" : "0"); } catch (e) {} if (!muted) this.coin(); return muted; },
+    start() { tone(330, 0, .09, "square", .1); tone(494, .09, .12, "square", .1); },
+    hop() { tone(260, 0, .16, "sine", .22, 620); },
+    coin() { tone(988, 0, .08, "square", .1); tone(1319, .07, .22, "square", .1); },
+    horn() { tone(392, 0, .35, "sawtooth", .12); tone(466, 0, .35, "sawtooth", .12); },
+    crash() { noise(0, .45, .5, 900); tone(140, 0, .4, "sawtooth", .25, 40); tone(90, .05, .5, "square", .15, 30); },
+    cash() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * .09, .22, "triangle", .2)); },
+    win() { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .1, .25, "triangle", .22)); },
+  };
+})();
+
 function crChicken() {
   return `<g class="cr-hop">
-    <path d="M-9 -24 L-9 -2 M9 -24 L9 -2" stroke="#f5a21a" stroke-width="5" stroke-linecap="round"/>
-    <path d="M-16 -1 L-4 -1 M2 -1 L14 -1" stroke="#f5a21a" stroke-width="4" stroke-linecap="round"/>
-    <path d="M-26 -52 Q-48 -62 -40 -84 Q-24 -78 -18 -60Z" fill="#ececec"/>
-    <ellipse cx="0" cy="-46" rx="30" ry="28" fill="#fff" stroke="#e3e3e3" stroke-width="2"/>
-    <ellipse cx="-7" cy="-43" rx="15" ry="11" fill="#f3f3f3" stroke="#ddd"/>
-    <circle cx="15" cy="-80" r="18" fill="#fff" stroke="#e3e3e3" stroke-width="2"/>
-    <circle cx="6" cy="-97" r="6" fill="#e5322d"/><circle cx="15" cy="-99" r="7" fill="#e5322d"/><circle cx="24" cy="-96" r="6" fill="#e5322d"/>
-    <path d="M30 -80 L46 -75 L30 -69Z" fill="#ff9f1a"/>
-    <path d="M30 -68 q4 12 -2 14 q-6 -6 2 -14z" fill="#e5322d"/>
-    <circle cx="22" cy="-84" r="3.6" fill="#222"/><circle cx="23" cy="-85" r="1.2" fill="#fff"/>
+    <path d="M-10 -22 L-10 -3 M10 -22 L10 -3" stroke="#ef9a12" stroke-width="5" stroke-linecap="round"/>
+    <path d="M-18 -2 L-5 -2 M3 -2 L16 -2" stroke="#ef9a12" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M-28 -56 Q-52 -62 -46 -86 Q-26 -82 -20 -62Z" fill="#f1f1f1" stroke="#d8d8d8" stroke-width="2"/>
+    <ellipse cx="0" cy="-48" rx="32" ry="30" fill="#fff" stroke="#dcdcdc" stroke-width="2.5"/>
+    <path d="M-20 -40 Q-6 -28 12 -38" fill="none" stroke="#e6e6e6" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="14" cy="-84" r="21" fill="#fff" stroke="#dcdcdc" stroke-width="2.5"/>
+    <circle cx="3" cy="-104" r="6.5" fill="#e5322d"/><circle cx="14" cy="-107" r="8" fill="#e5322d"/><circle cx="25" cy="-103" r="6.5" fill="#e5322d"/>
+    <path d="M33 -86 L52 -80 L33 -73Z" fill="#ff9f1a" stroke="#e08400" stroke-width="1.5"/>
+    <path d="M32 -72 q5 14 -2 16 q-7 -7 2 -16z" fill="#e5322d"/>
+    <circle cx="23" cy="-90" r="8.5" fill="#fff" stroke="#999" stroke-width="1.5"/><circle cx="25" cy="-90" r="4.2" fill="#111"/><circle cx="26.5" cy="-91.5" r="1.5" fill="#fff"/>
   </g>`;
 }
 
 function crCar(color) {
-  // original top-down cartoon car, drives down a lane
-  return `<g><rect x="-22" y="-44" width="44" height="88" rx="14" fill="${color}" stroke="rgba(0,0,0,.35)" stroke-width="2"/>
-    <rect x="-16" y="-24" width="32" height="20" rx="6" fill="#bfe6ff"/><rect x="-16" y="10" width="32" height="14" rx="5" fill="#9fcff0"/>
-    <circle cx="-13" cy="38" r="4" fill="#fff6a8"/><circle cx="13" cy="38" r="4" fill="#fff6a8"/>
-    <rect x="-24" y="-30" width="4" height="14" rx="2" fill="#222"/><rect x="20" y="-30" width="4" height="14" rx="2" fill="#222"/>
-    <rect x="-24" y="16" width="4" height="14" rx="2" fill="#222"/><rect x="20" y="16" width="4" height="14" rx="2" fill="#222"/></g>`;
+  // original cartoon car seen from above, driving down its lane
+  return `<g><rect x="-24" y="-48" width="48" height="96" rx="16" fill="${color}" stroke="rgba(0,0,0,.45)" stroke-width="2.5"/>
+    <rect x="-18" y="-6" width="36" height="26" rx="7" fill="#cfeaff" stroke="rgba(0,0,0,.25)"/>
+    <rect x="-16" y="26" width="32" height="14" rx="5" fill="#a9d4f2"/>
+    <rect x="-18" y="-38" width="36" height="22" rx="8" fill="rgba(255,255,255,.18)"/>
+    <circle cx="-14" cy="44" r="4.5" fill="#fff6a8"/><circle cx="14" cy="44" r="4.5" fill="#fff6a8"/>
+    <rect x="-27" y="-34" width="5" height="16" rx="2" fill="#151515"/><rect x="22" y="-34" width="5" height="16" rx="2" fill="#151515"/>
+    <rect x="-27" y="18" width="5" height="16" rx="2" fill="#151515"/><rect x="22" y="18" width="5" height="16" rx="2" fill="#151515"/></g>`;
 }
 
 function crSceneSVG(rules) {
@@ -1178,44 +1232,59 @@ function crSceneSVG(rules) {
   for (let i = 0; i <= N + 1; i++) {
     const x = crLaneX(i);
     if (i === 0) {
-      lanes += `<rect x="${x - 200}" y="60" width="${LW + 200}" height="240" fill="#5b8f4a"/><rect x="${x - 200}" y="60" width="${LW + 200}" height="14" fill="#7bb85f"/>
-        <text x="${x + 45}" y="150" text-anchor="middle" font-size="12" font-weight="800" fill="#e8ffd9">START</text>`;
+      lanes += `<rect x="${x - 200}" y="60" width="${LW + 200}" height="240" fill="#2b2f58"/>
+        <rect x="${x - 200}" y="268" width="${LW + 200}" height="32" fill="#1d2040"/>
+        <text x="${x + 45}" y="150" text-anchor="middle" font-size="13" font-weight="900" fill="#aab3ff" letter-spacing="2">START</text>`;
       continue;
     }
     if (i === N + 1) {
-      lanes += `<rect x="${x}" y="60" width="${LW + 400}" height="240" fill="#5b8f4a"/><rect x="${x}" y="60" width="${LW + 400}" height="14" fill="#7bb85f"/>
-        <path d="M${x + 14} 262 L${x + 14} 130 Q${x + 45} 70 ${x + 76} 130 L${x + 76} 262Z" fill="#2c3156" stroke="#8d96d8" stroke-width="3"/>
-        <ellipse cx="${x + 45}" cy="200" rx="22" ry="28" fill="#ffd23f" stroke="#c48a00" stroke-width="3"/><text x="${x + 45}" y="206" text-anchor="middle" font-size="22">🥚</text>`;
+      lanes += `<rect x="${x}" y="60" width="${LW + 400}" height="240" fill="#2b2f58"/>
+        <rect x="${x + LW - 4}" y="60" width="400" height="240" fill="#4a4f80"/>
+        <path d="M${x + 12} 268 L${x + 12} 140 Q${x + 45} 66 ${x + 78} 140 L${x + 78} 268Z" fill="#1b1e3d" stroke="#9aa3ee" stroke-width="3"/>
+        <path d="M${x + 12} 268 L${x + 12} 140 Q${x + 45} 66 ${x + 78} 140 L${x + 78} 268Z" fill="url(#crBeam)"/>
+        <ellipse cx="${x + 45}" cy="198" rx="24" ry="31" fill="url(#crGold)" stroke="#a87100" stroke-width="3"/>
+        <ellipse cx="${x + 38}" cy="186" rx="6" ry="10" fill="rgba(255,255,255,.55)"/>
+        <path d="M${x + 28} 268 L${x + 34} 252 L${x + 56} 252 L${x + 62} 268Z" fill="#d9ddff"/>`;
       continue;
     }
-    lanes += `<rect id="cr-lane-${i}" x="${x}" y="60" width="${LW}" height="240" fill="${i % 2 ? "#363b63" : "#3d426d"}"/>
-      <line x1="${x + LW}" y1="64" x2="${x + LW}" y2="298" stroke="#c9cdf2" stroke-width="3" stroke-dasharray="14 12" opacity=".55"/>
-      <g id="cr-grate-${i}"><path d="M${x + 22} 262 Q${x + 45} 218 ${x + 68} 262Z" fill="#1c1f3a" stroke="#555b8f" stroke-width="2"/>
-        <path d="M${x + 33} 262 V240 M${x + 45} 262 V232 M${x + 57} 262 V240" stroke="#555b8f" stroke-width="2"/></g>
+    lanes += `<rect id="cr-lane-${i}" x="${x}" y="60" width="${LW}" height="240" fill="${i % 2 ? "#363b6b" : "#3a406f"}"/>
+      <line x1="${x + LW}" y1="64" x2="${x + LW}" y2="298" stroke="#c9cdf2" stroke-width="3" stroke-dasharray="14 12" opacity=".5"/>
+      <g id="cr-grate-${i}"><path d="M${x + 20} 268 Q${x + 20} 222 ${x + 45} 222 Q${x + 70} 222 ${x + 70} 268Z" fill="#171a36" stroke="#5d6498" stroke-width="2.5"/>
+        <path d="M${x + 31} 268 V236 M${x + 40} 268 V230 M${x + 50} 268 V230 M${x + 59} 268 V236" stroke="#5d6498" stroke-width="2.5"/></g>
       <g id="cr-coin-${i}" transform="translate(${x + 45},130)">
-        <circle id="cr-coinc-${i}" r="30" fill="#4a5bff" stroke="#c9d0ff" stroke-width="4"/>
-        <text id="cr-coint-${i}" y="6" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">×${Number(rules.steps[i - 1].multiplier).toFixed(2)}</text></g>`;
+        <circle r="35" fill="rgba(0,0,0,.28)" cy="4"/>
+        <circle id="cr-coinc-${i}" r="32" fill="url(#crBlue)" stroke="#c9d0ff" stroke-width="4"/>
+        <text id="cr-coint-${i}" y="6" text-anchor="middle" font-size="16" font-weight="900" fill="#fff">${Number(rules.steps[i - 1].multiplier).toFixed(2)}x</text></g>`;
   }
   let bricks = "";
   for (let r = 0; r < 4; r++) for (let c = -2; c < (N + 4) * 2; c++) {
-    bricks += `<rect x="${c * 45 + (r % 2 ? 22 : 0)}" y="${r * 15}" width="43" height="13" rx="2" fill="${(r + c) % 3 ? "#262a4a" : "#2c3156"}"/>`;
+    bricks += `<rect x="${c * 45 + (r % 2 ? 22 : 0)}" y="${r * 15}" width="43" height="13" rx="2" fill="${(r + c) % 3 ? "#232748" : "#2a2f55"}"/>`;
   }
   return `<svg id="cr-svg" viewBox="0 0 ${CR.W} ${CR.H}" width="100%" style="display:block;border-radius:14px;background:#1a1d38;overflow:hidden">
+    <defs>
+      <radialGradient id="crGold" cx="35%" cy="30%"><stop offset="0" stop-color="#fff3a0"/><stop offset=".55" stop-color="#ffc928"/><stop offset="1" stop-color="#d98f00"/></radialGradient>
+      <radialGradient id="crGreen" cx="35%" cy="30%"><stop offset="0" stop-color="#6ff08e"/><stop offset="1" stop-color="#16963a"/></radialGradient>
+      <radialGradient id="crBlue" cx="35%" cy="30%"><stop offset="0" stop-color="#7f8cff"/><stop offset="1" stop-color="#3b479e"/></radialGradient>
+      <linearGradient id="crBeam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".0"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient>
+    </defs>
     <g id="cr-world" style="transition:transform .55s ease-in-out">
       ${bricks}<rect y="58" x="-200" width="${(N + 3) * LW + 400}" height="4" fill="#12142a"/>
       ${lanes}
+      <rect id="cr-hl" x="0" y="60" width="${LW}" height="240" fill="rgba(255,255,255,.07)" style="transition:transform .55s ease-in-out"/>
+      <rect x="-200" y="268" width="${(N + 3) * LW + 400}" height="32" fill="#14172f" opacity=".75"/>
       <g id="cr-carl"></g><g id="cr-coins"></g>
-      <g id="cr-ck" style="transition:transform .55s cubic-bezier(.3,1.3,.5,1)"><ellipse cx="0" cy="2" rx="24" ry="6" fill="rgba(0,0,0,.35)"/><g transform="scale(.82)">${crChicken()}</g></g>
+      <g id="cr-ck" style="transition:transform .55s cubic-bezier(.3,1.3,.5,1)"><ellipse cx="0" cy="2" rx="26" ry="6" fill="rgba(0,0,0,.4)"/><g transform="scale(.8)">${crChicken()}</g></g>
     </g></svg>`;
 }
 
 function crPlace(step, animate) {
-  const ck = document.getElementById("cr-ck"), w = document.getElementById("cr-world");
+  const ck = document.getElementById("cr-ck"), w = document.getElementById("cr-world"), hl = document.getElementById("cr-hl");
   if (!ck || !w) return;
-  if (!animate) { ck.style.transition = "none"; w.style.transition = "none"; }
+  if (!animate) { ck.style.transition = "none"; w.style.transition = "none"; if (hl) hl.style.transition = "none"; }
   ck.style.transform = `translate(${crCenterX(step)}px,${CR.GROUND}px)`;
   w.style.transform = `translateX(${-crCam(step)}px)`;
-  if (!animate) { void ck.getBoundingClientRect(); ck.style.transition = ""; w.style.transition = "transform .55s ease-in-out"; }
+  if (hl) hl.style.transform = `translateX(${crLaneX(step)}px)`;
+  if (!animate) { void ck.getBoundingClientRect(); ck.style.transition = ""; w.style.transition = "transform .55s ease-in-out"; if (hl) hl.style.transition = "transform .55s ease-in-out"; }
   const inner = ck.querySelector(".cr-hop");
   if (animate && inner) { inner.classList.remove("hopping", "dead", "dance"); void inner.getBoundingClientRect(); inner.classList.add("hopping"); }
   if (!animate && inner) inner.classList.remove("hopping", "dead", "dance");
@@ -1225,22 +1294,24 @@ function crPaint(d, rules) {
   for (let i = 1; i <= CR.N; i++) {
     const c = document.getElementById(`cr-coinc-${i}`), t = document.getElementById(`cr-coint-${i}`);
     if (!c) continue;
-    if (i <= d.step) { c.setAttribute("fill", "#e8b620"); c.setAttribute("stroke", "#fff0a8"); t.textContent = "✓"; t.setAttribute("font-size", "24"); t.setAttribute("y", "9"); }
+    if (i <= d.step) { c.setAttribute("fill", "url(#crGold)"); c.setAttribute("stroke", "#fff0a8"); t.textContent = "🍗"; t.setAttribute("font-size", "28"); t.setAttribute("y", "10"); }
     else {
       const next = i === d.step + 1 && d.status !== "lost" && d.status !== "cashed_out";
-      c.setAttribute("fill", i === CR.N ? "#e8b620" : (next ? "#26b24b" : "#4a5bff"));
+      c.setAttribute("fill", next ? "url(#crGreen)" : (i === CR.N ? "url(#crGold)" : "url(#crBlue)"));
       c.setAttribute("stroke", next ? "#b9ffc8" : "#c9d0ff");
-      t.textContent = "×" + Number(rules.steps[i - 1].multiplier).toFixed(2); t.setAttribute("font-size", "16"); t.setAttribute("y", "6");
+      t.textContent = Number(rules.steps[i - 1].multiplier).toFixed(2) + "x"; t.setAttribute("font-size", "16"); t.setAttribute("y", "6");
     }
   }
 }
 
 function crCrash(lane) {
-  // a car drives down the trap lane and hits the chicken
   const colors = ["#e5322d", "#ffb020", "#2f9bff"];
   const car = document.getElementById("cr-carl");
   car.innerHTML = `<g transform="translate(${crCenterX(lane)},0)"><g class="cr-car">${crCar(colors[lane % 3])}</g></g>`;
+  CRSound.horn();
   setTimeout(() => {
+    CRSound.crash();
+    try { tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("error"); } catch (e) {}
     const inner = document.querySelector("#cr-ck .cr-hop"); if (inner) inner.classList.add("dead");
     const g = document.getElementById("cr-grate-" + lane); if (g) g.style.opacity = ".3";
   }, 380);
@@ -1250,11 +1321,12 @@ function crCoins(step) {
   const g = document.getElementById("cr-coins");
   const cx = crCenterX(step);
   let h = "";
-  for (let k = 0; k < 14; k++) {
-    const dx = (Math.random() - 0.5) * 150, dy = -50 - Math.random() * 80, d = (Math.random() * 0.25).toFixed(2);
+  for (let k = 0; k < 16; k++) {
+    const dx = (Math.random() - 0.5) * 160, dy = -50 - Math.random() * 80, d = (Math.random() * 0.25).toFixed(2);
     h += `<g style="--dx:${dx}px;--dy:${dy}px;animation:cr-coin .9s ${d}s ease-out forwards;transform:translate(${cx}px,200px)"><circle r="8" fill="#ffd23f" stroke="#c48a00" stroke-width="2"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#8a5a00">$</text></g>`;
   }
   g.innerHTML = h;
+  CRSound.cash();
   const inner = document.querySelector("#cr-ck .cr-hop"); if (inner) { inner.classList.remove("hopping"); inner.classList.add("dance"); }
 }
 
@@ -1292,7 +1364,7 @@ function crScreen(rd, rules) {
     <div class="card" style="padding:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 6px 8px">
         <h2 style="margin:0;font-weight:900;letter-spacing:.5px">CHICKEN <span style="color:#ffd23f">ROAD</span></h2>
-        <span class="friend-username" id="cr-bal"></span></div>
+        <span style="display:flex;gap:8px;align-items:center"><button id="cr-mute" class="friend-username" style="border:0;cursor:pointer;color:inherit;font-size:14px">${CRSound.muted ? "🔇" : "🔊"}</button><span class="friend-username" id="cr-bal"></span></span></div>
       ${crSceneSVG(rules)}
       <div id="cr-info" class="center-note" style="margin:8px 0 4px"></div>
       <div class="error-text" id="cr-err"></div>
@@ -1307,6 +1379,7 @@ function crScreen(rd, rules) {
     </div></div>
     <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
   bindBack();
+  document.getElementById("cr-mute").addEventListener("click", (ev) => { ev.currentTarget.textContent = CRSound.toggle() ? "🔇" : "🔊"; });
   apiGet("/webapp/wallet").then((w) => { const b = document.getElementById("cr-bal"); if (b) b.textContent = `${fmt(w.available_balance)} ETB`; }).catch(() => {});
   crPaint(state, rules);
   crPlace(state.step, false);
@@ -1338,24 +1411,26 @@ function crScreen(rd, rules) {
     }
   };
   const doStart = async () => {
-    if (busy) return; busy = true; err.textContent = "";
+    if (busy) return; busy = true; err.textContent = ""; CRSound.unlock();
     try {
       window._crBet = document.getElementById("cr-bet").value.trim();
       const d = await apiPostJson("/webapp/games/chicken/start", { bet: window._crBet });
-      crId = d.round_id; document.getElementById("cr-carl").innerHTML = ""; crPaint(d, rules); crPlace(0, false); setUI(d); refreshBal();
+      CRSound.start(); crId = d.round_id; document.getElementById("cr-carl").innerHTML = ""; crPaint(d, rules); crPlace(0, false); setUI(d); refreshBal();
     } catch (e) { err.textContent = e.message; }
     busy = false;
   };
   const doStep = async () => {
-    if (busy) return; busy = true; err.textContent = "";
+    if (busy) return; busy = true; err.textContent = ""; CRSound.unlock();
     try {
       const d = await apiPostJson("/webapp/games/chicken/step", { round_id: crId });
+      CRSound.hop();
       if (d.status === "lost") {
         crPlace(d.lost_at - 1 + 1 > CR.N ? CR.N : d.lost_at, true);   // chicken steps into the lane
         crPaint({ ...d, step: d.lost_at - 1 }, rules);
         setTimeout(() => { crCrash(d.lost_at); setTimeout(() => setUI(d), 1000); }, 550);
       } else {
         crPlace(d.step, true); crPaint(d, rules);
+        setTimeout(() => CRSound.coin(), 420);
         if (d.status === "cashed_out") setTimeout(() => { crCoins(d.step); setUI(d); }, 550);
         else setUI(d);
       }

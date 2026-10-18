@@ -23,7 +23,7 @@ router = APIRouter()
 def create_deposit(payload: DepositRequest, db: Session = Depends(get_db)):
     user = get_user_or_404(db, payload.telegram_user_id)
 
-    if payload.payment_method not in ("telebirr", "nib_bank"):
+    if payload.payment_method not in ("telebirr",):
         raise HTTPException(status_code=400, detail="Invalid payment method.")
 
     deposit = Deposit(

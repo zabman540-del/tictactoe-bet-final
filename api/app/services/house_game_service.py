@@ -253,7 +253,7 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
 # path is drawn with the OS CSPRNG when the round starts and kept secret on the
 # server. Fair multiplier = 2^k; we pay 2^k x (1 - CHICKEN_EDGE), disclosed.
 
-CHICKEN_EDGE = Decimal("0.10")
+CHICKEN_EDGE = Decimal("0.05")
 CHICKEN_MAX_STEPS = 10
 CHICKEN_SAFE_CHANCE = 50
 

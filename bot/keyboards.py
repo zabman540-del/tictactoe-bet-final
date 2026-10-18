@@ -18,7 +18,6 @@ def deposit_method_keyboard() -> InlineKeyboardMarkup:
     """Shown when the player presses Deposit — choose payment method."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📱 Telebirr", callback_data="deposit_method:telebirr")],
-        [InlineKeyboardButton(text="🏦 NIB Bank", callback_data="deposit_method:nib_bank")],
         [InlineKeyboardButton(text="⬅️ Cancel", callback_data="deposit_method:cancel")],
     ])
 
@@ -27,7 +26,6 @@ def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     """Shown when the player presses Withdraw — choose payment method."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📱 Telebirr", callback_data="withdraw_method:telebirr")],
-        [InlineKeyboardButton(text="🏦 NIB Bank", callback_data="withdraw_method:nib_bank")],
         [InlineKeyboardButton(text="⬅️ Cancel", callback_data="withdraw_method:cancel")],
     ])
 

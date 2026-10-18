@@ -19,7 +19,9 @@ router = APIRouter(prefix="/webapp")
 
 @router.get("/config")
 def config():
-    return {"bot_username": os.getenv("BOT_USERNAME", "Ticarena_bot")}
+    return {"bot_username": os.getenv("BOT_USERNAME", "Ticarena_bot"),
+            "telebirr_number": os.getenv("TELEBIRR_NUMBER", "09xxxxxxxx"),
+            "telebirr_name": os.getenv("TELEBIRR_NAME", "xxxxxxx")}
 
 
 @router.get("/online")

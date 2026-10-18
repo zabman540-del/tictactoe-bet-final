@@ -155,7 +155,7 @@ async def create_deposit(
 ):
     user = _webapp_user(db, x_telegram_init_data)
 
-    if payment_method not in ("telebirr", "nib_bank"):
+    if payment_method not in ("telebirr",):
         raise HTTPException(status_code=400, detail="Invalid payment method.")
     try:
         amount_dec = Decimal(amount)
@@ -197,7 +197,7 @@ def create_withdrawal(
 ):
     user = _webapp_user(db, x_telegram_init_data)
 
-    if payment_method not in ("telebirr", "nib_bank"):
+    if payment_method not in ("telebirr",):
         raise HTTPException(status_code=400, detail="Invalid payment method.")
     try:
         amount_dec = Decimal(amount)
