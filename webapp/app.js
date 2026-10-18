@@ -57,8 +57,13 @@ function fmt(n) {
 /* ---------------- Router ---------------- */
 
 function currentRoute() {
-  const hash = window.location.hash.replace("#/", "") || "home";
-  return hash.split("/"); // e.g. ["board", "abc-123"]
+  let hash = window.location.hash.replace("#/", "") || "home";
+  // Telegram appends launch data (?tgWebAppData=..., &tgWebApp...) to links opened from a bot
+  // button. Strip it, or the id in the link becomes "abc-123?tgWebAppData=..." and every API call breaks.
+  hash = hash.split("?")[0].split("&")[0].split("#")[0];
+  const parts = hash.split("/"); // e.g. ["board", "abc-123"]
+  if (parts[1]) parts[1] = parts[1].replace(/[^A-Za-z0-9_-]/g, "");
+  return parts;
 }
 
 async function router() {
