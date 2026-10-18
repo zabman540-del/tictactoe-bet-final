@@ -253,9 +253,9 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
 # path is drawn with the OS CSPRNG when the round starts and kept secret on the
 # server. Fair multiplier = 2^k; we pay 2^k x (1 - CHICKEN_EDGE), disclosed.
 
-CHICKEN_EDGE = Decimal("0.05")
+CHICKEN_EDGE = Decimal("0.08")
 CHICKEN_MAX_STEPS = 10
-CHICKEN_SAFE_CHANCE = 50
+CHICKEN_SAFE_CHANCE = 48
 
 
 def chicken_multiplier(step: int) -> Decimal:
@@ -269,7 +269,7 @@ def chicken_rules() -> dict:
             "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
             "max_steps": CHICKEN_MAX_STEPS,
             "steps": [{"step": k, "multiplier": str(chicken_multiplier(k)),
-                       "survive_chance": str((Decimal(100) / (Decimal(2) ** k)).quantize(Decimal("0.01")))}
+                       "survive_chance": str((Decimal(CHICKEN_SAFE_CHANCE) ** k / Decimal(100) ** (k - 1)).quantize(Decimal("0.01")))}
                       for k in range(1, CHICKEN_MAX_STEPS + 1)]}
 
 
@@ -298,7 +298,7 @@ def chicken_start(db: Session, user_id, bet) -> dict:
     if wallet.available_balance < bet:
         db.rollback()
         raise GameError("Not enough balance.")
-    path = [secrets.randbelow(2) == 1 for _ in range(CHICKEN_MAX_STEPS)]   # True = safe
+    path = [secrets.randbelow(100) < CHICKEN_SAFE_CHANCE for _ in range(CHICKEN_MAX_STEPS)]   # True = safe
     rnd = GameRound(id=uuid.uuid4(), user_id=user_id, game="chicken", bet_amount=bet, status="active",
                     params={"safe": path, "step": 0}, multiplier=Decimal("1"))
     db.add(rnd)

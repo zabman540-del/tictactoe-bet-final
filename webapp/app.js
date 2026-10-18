@@ -1162,68 +1162,107 @@ const crCam = (step) => Math.max(0, crCenterX(step) - 105);
 
 /* ---------- sound (WebAudio, no files needed) ---------- */
 const CRSound = (() => {
-  let ctx = null, muted = false;
+  const SR = 22050;
+  let muted = false, ready = false;
   try { muted = localStorage.getItem("nb_mute") === "1"; } catch (e) {}
-  const ensure = () => {
-    if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-    if (ctx && ctx.state === "suspended") { try { ctx.resume(); } catch (e) {} }
-    return ctx;
+  const els = {};
+  const wv = (ph, type) => type === "square" ? (Math.sin(ph) >= 0 ? .55 : -.55)
+    : type === "saw" ? ((ph / (2 * Math.PI)) % 1) * 2 - 1
+    : type === "tri" ? 2 * Math.abs(((ph / (2 * Math.PI)) % 1) * 2 - 1) - 1 : Math.sin(ph);
+  const T = (f, t0, dur, type, vol, f2) => ({ f, t0, dur, type: type || "sine", vol: vol || .5, f2 });
+  const N = (t0, dur, vol, lp) => ({ noise: true, t0, dur, vol: vol || .6, lp: lp || .12 });
+  const DEFS = {
+    start: [T(330, 0, .1, "square", .5), T(494, .1, .14, "square", .5)],
+    hop: [T(240, 0, .18, "sine", .8, 640)],
+    coin: [T(988, 0, .09, "square", .5), T(1319, .08, .26, "square", .5)],
+    horn: [T(392, 0, .4, "saw", .45), T(466, 0, .4, "saw", .45)],
+    crash: [N(0, .5, .9, .1), T(150, 0, .45, "saw", .7, 40), T(90, .05, .5, "square", .5, 30)],
+    cash: [523, 659, 784, 1047, 1319].map((f, i) => T(f, i * .09, .24, "tri", .7)),
   };
-  const tone = (f, t0, dur, type, vol, f2) => {
-    if (muted || !ensure()) return;
-    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + t0;
-    o.type = type || "sine"; o.frequency.setValueAtTime(f, t);
-    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.18, t + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + dur + 0.05);
+  function build(evs) {
+    let total = 0; evs.forEach((e) => { total = Math.max(total, e.t0 + e.dur); });
+    const n = Math.ceil((total + .05) * SR), buf = new Float32Array(n);
+    evs.forEach((e) => {
+      const s0 = Math.floor(e.t0 * SR), m = Math.floor(e.dur * SR); let ph = 0, lp = 0;
+      for (let i = 0; i < m && s0 + i < n; i++) {
+        const k = i / m, env = Math.min(1, i / (SR * .01)) * Math.pow(1 - k, 1.6);
+        let v;
+        if (e.noise) { lp += (Math.random() * 2 - 1 - lp) * e.lp; v = lp * 4; }
+        else { const f = e.f2 ? e.f * Math.pow(e.f2 / e.f, k) : e.f; ph += 2 * Math.PI * f / SR; v = wv(ph, e.type); }
+        buf[s0 + i] += v * env * e.vol;
+      }
+    });
+    const dv = new DataView(new ArrayBuffer(44 + n * 2));
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, SR, true); dv.setUint32(28, SR * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, buf[i])) * 32000, true);
+    return URL.createObjectURL(new Blob([dv], { type: "audio/wav" }));
+  }
+  function unlock() {
+    if (ready) return; ready = true;
+    Object.keys(DEFS).forEach((k) => {
+      try {
+        const a = new Audio(build(DEFS[k])); a.preload = "auto"; a.volume = 1; els[k] = a;
+        a.muted = true;
+        const pr = a.play();
+        const done = () => { try { a.pause(); a.currentTime = 0; } catch (e) {} a.muted = false; };
+        if (pr && pr.then) pr.then(done).catch(() => { a.muted = false; ready = false; }); else done();
+      } catch (e) { ready = false; }
+    });
+  }
+  const play = (k) => {
+    if (muted) return;
+    if (!ready) unlock();
+    const a = els[k]; if (!a) return;
+    try { a.muted = false; a.currentTime = 0; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) {}
   };
-  const noise = (t0, dur, vol, lp) => {
-    if (muted || !ensure()) return;
-    const n = Math.floor(ctx.sampleRate * dur), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-    const src = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter(), t = ctx.currentTime + t0;
-    f.type = "lowpass"; f.frequency.value = lp || 1200; src.buffer = buf; g.gain.value = vol || 0.3;
-    src.connect(f); f.connect(g); g.connect(ctx.destination); src.start(t);
-  };
+  try { document.addEventListener("pointerdown", unlock, { once: true }); document.addEventListener("touchstart", unlock, { once: true }); } catch (e) {}
   return {
-    unlock: ensure,
+    unlock,
     get muted() { return muted; },
-    toggle() { muted = !muted; try { localStorage.setItem("nb_mute", muted ? "1" : "0"); } catch (e) {} if (!muted) this.coin(); return muted; },
-    start() { tone(330, 0, .09, "square", .1); tone(494, .09, .12, "square", .1); },
-    hop() { tone(260, 0, .16, "sine", .22, 620); },
-    coin() { tone(988, 0, .08, "square", .1); tone(1319, .07, .22, "square", .1); },
-    horn() { tone(392, 0, .35, "sawtooth", .12); tone(466, 0, .35, "sawtooth", .12); },
-    crash() { noise(0, .45, .5, 900); tone(140, 0, .4, "sawtooth", .25, 40); tone(90, .05, .5, "square", .15, 30); },
-    cash() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * .09, .22, "triangle", .2)); },
-    win() { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .1, .25, "triangle", .22)); },
+    toggle() { muted = !muted; try { localStorage.setItem("nb_mute", muted ? "1" : "0"); } catch (e) {} unlock(); if (!muted) setTimeout(() => play("coin"), 80); return muted; },
+    start: () => play("start"), hop: () => play("hop"), coin: () => play("coin"),
+    horn: () => play("horn"), crash: () => play("crash"), cash: () => play("cash"),
   };
 })();
 
 function crChicken() {
   return `<g class="cr-hop">
-    <path d="M-10 -22 L-10 -3 M10 -22 L10 -3" stroke="#ef9a12" stroke-width="5" stroke-linecap="round"/>
-    <path d="M-18 -2 L-5 -2 M3 -2 L16 -2" stroke="#ef9a12" stroke-width="4.5" stroke-linecap="round"/>
-    <path d="M-28 -56 Q-52 -62 -46 -86 Q-26 -82 -20 -62Z" fill="#f1f1f1" stroke="#d8d8d8" stroke-width="2"/>
-    <ellipse cx="0" cy="-48" rx="32" ry="30" fill="#fff" stroke="#dcdcdc" stroke-width="2.5"/>
-    <path d="M-20 -40 Q-6 -28 12 -38" fill="none" stroke="#e6e6e6" stroke-width="3" stroke-linecap="round"/>
-    <circle cx="14" cy="-84" r="21" fill="#fff" stroke="#dcdcdc" stroke-width="2.5"/>
-    <circle cx="3" cy="-104" r="6.5" fill="#e5322d"/><circle cx="14" cy="-107" r="8" fill="#e5322d"/><circle cx="25" cy="-103" r="6.5" fill="#e5322d"/>
-    <path d="M33 -86 L52 -80 L33 -73Z" fill="#ff9f1a" stroke="#e08400" stroke-width="1.5"/>
-    <path d="M32 -72 q5 14 -2 16 q-7 -7 2 -16z" fill="#e5322d"/>
-    <circle cx="23" cy="-90" r="8.5" fill="#fff" stroke="#999" stroke-width="1.5"/><circle cx="25" cy="-90" r="4.2" fill="#111"/><circle cx="26.5" cy="-91.5" r="1.5" fill="#fff"/>
+    <path d="M-12 -24 L-12 -4 M10 -24 L10 -4" stroke="url(#crLeg)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M-22 -2 L-14 -9 M-14 -2 L-12 -9 M-6 -2 L-12 -9 M2 -2 L10 -9 M10 -2 L10 -9 M18 -2 L10 -9" stroke="#d98414" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M-30 -62 Q-62 -78 -56 -46 Q-52 -62 -38 -52Z" fill="#e9e9ee" stroke="#cfcfd8" stroke-width="2"/>
+    <path d="M-30 -52 Q-58 -60 -50 -34 Q-46 -48 -34 -44Z" fill="#dcdce4" stroke="#c4c4ce" stroke-width="2"/>
+    <ellipse cx="0" cy="-48" rx="34" ry="31" fill="url(#crFeather)" stroke="#cdcdd6" stroke-width="2.5"/>
+    <path d="M-24 -38 Q-4 -22 22 -36" fill="none" stroke="#e3e3ea" stroke-width="3" stroke-linecap="round"/>
+    <path d="M-20 -52 Q-8 -40 8 -50 M-22 -44 Q-8 -32 12 -42" fill="none" stroke="#dcdce4" stroke-width="2.4" stroke-linecap="round"/>
+    <ellipse cx="-6" cy="-46" rx="17" ry="12" fill="#f4f4f8" stroke="#d3d3dc" stroke-width="2"/>
+    <circle cx="14" cy="-86" r="22" fill="url(#crFeather)" stroke="#cdcdd6" stroke-width="2.5"/>
+    <path d="M3 -104 q-3 -12 5 -10 q1 -11 9 -6 q8 -6 10 6 q9 -1 4 11 q-12 -3 -28 -1z" fill="#d9231e" stroke="#a31410" stroke-width="1.5"/>
+    <path d="M35 -88 L56 -82 L35 -74Z" fill="#ffae1f" stroke="#d98400" stroke-width="1.5"/>
+    <path d="M34 -73 q6 16 -2 18 q-8 -8 2 -18z" fill="#d9231e" stroke="#a31410" stroke-width="1.2"/>
+    <circle cx="24" cy="-92" r="9" fill="#fff" stroke="#8d8d99" stroke-width="1.6"/><circle cx="26" cy="-92" r="4.6" fill="#111"/><circle cx="27.6" cy="-93.6" r="1.7" fill="#fff"/>
   </g>`;
 }
 
 function crCar(color) {
-  // original cartoon car seen from above, driving down its lane
-  return `<g><rect x="-24" y="-48" width="48" height="96" rx="16" fill="${color}" stroke="rgba(0,0,0,.45)" stroke-width="2.5"/>
-    <rect x="-18" y="-6" width="36" height="26" rx="7" fill="#cfeaff" stroke="rgba(0,0,0,.25)"/>
-    <rect x="-16" y="26" width="32" height="14" rx="5" fill="#a9d4f2"/>
-    <rect x="-18" y="-38" width="36" height="22" rx="8" fill="rgba(255,255,255,.18)"/>
-    <circle cx="-14" cy="44" r="4.5" fill="#fff6a8"/><circle cx="14" cy="44" r="4.5" fill="#fff6a8"/>
-    <rect x="-27" y="-34" width="5" height="16" rx="2" fill="#151515"/><rect x="22" y="-34" width="5" height="16" rx="2" fill="#151515"/>
-    <rect x="-27" y="18" width="5" height="16" rx="2" fill="#151515"/><rect x="22" y="18" width="5" height="16" rx="2" fill="#151515"/></g>`;
+  // original cartoon car from above, with glossy body, glass, lights and a headlight beam
+  return `<g>
+    <ellipse cx="4" cy="6" rx="34" ry="56" fill="rgba(0,0,0,.35)"/>
+    <path d="M-16 52 L-30 150 L30 150 L16 52Z" fill="url(#crBeamCar)"/>
+    <rect x="-27" y="-36" width="7" height="18" rx="3" fill="#0e0e12"/><rect x="20" y="-36" width="7" height="18" rx="3" fill="#0e0e12"/>
+    <rect x="-27" y="16" width="7" height="18" rx="3" fill="#0e0e12"/><rect x="20" y="16" width="7" height="18" rx="3" fill="#0e0e12"/>
+    <rect x="-25" y="-50" width="50" height="104" rx="18" fill="${color}" stroke="rgba(0,0,0,.55)" stroke-width="2.5"/>
+    <rect x="-25" y="-50" width="50" height="104" rx="18" fill="url(#crShine)"/>
+    <path d="M-17 -8 Q0 -16 17 -8 L15 14 Q0 20 -15 14Z" fill="#9ed2f5" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
+    <path d="M-14 -4 Q-2 -9 6 -6 L-4 10Z" fill="rgba(255,255,255,.55)"/>
+    <path d="M-15 24 Q0 30 15 24 L13 38 Q0 42 -13 38Z" fill="#7fb4d8" stroke="rgba(0,0,0,.3)"/>
+    <rect x="-17" y="-44" width="34" height="14" rx="6" fill="rgba(255,255,255,.14)"/>
+    <rect x="-30" y="-14" width="7" height="9" rx="3" fill="${color}" stroke="rgba(0,0,0,.4)"/><rect x="23" y="-14" width="7" height="9" rx="3" fill="${color}" stroke="rgba(0,0,0,.4)"/>
+    <ellipse cx="-14" cy="50" rx="7" ry="4.5" fill="#fff8c2"/><ellipse cx="14" cy="50" rx="7" ry="4.5" fill="#fff8c2"/>
+    <rect x="-18" y="-52" width="10" height="4" rx="2" fill="#ff3b30"/><rect x="8" y="-52" width="10" height="4" rx="2" fill="#ff3b30"/>
+  </g>`;
 }
 
 function crSceneSVG(rules) {
@@ -1247,9 +1286,9 @@ function crSceneSVG(rules) {
         <path d="M${x + 28} 268 L${x + 34} 252 L${x + 56} 252 L${x + 62} 268Z" fill="#d9ddff"/>`;
       continue;
     }
-    lanes += `<rect id="cr-lane-${i}" x="${x}" y="60" width="${LW}" height="240" fill="${i % 2 ? "#363b6b" : "#3a406f"}"/>
+    lanes += `<rect id="cr-lane-${i}" x="${x}" y="60" width="${LW}" height="240" fill="url(#crAsph)"/><rect x="${x}" y="60" width="${LW}" height="240" filter="url(#crNoise)"/><rect x="${x}" y="60" width="${LW}" height="120" fill="url(#crLamp)"/>
       <line x1="${x + LW}" y1="64" x2="${x + LW}" y2="298" stroke="#c9cdf2" stroke-width="3" stroke-dasharray="14 12" opacity=".5"/>
-      <g id="cr-grate-${i}"><path d="M${x + 20} 268 Q${x + 20} 222 ${x + 45} 222 Q${x + 70} 222 ${x + 70} 268Z" fill="#171a36" stroke="#5d6498" stroke-width="2.5"/>
+      <g id="cr-grate-${i}"><ellipse cx="${x + 45}" cy="284" rx="26" ry="8" fill="url(#crManhole)" stroke="#232749" stroke-width="2"/><path d="M${x + 28} 284 H${x + 62} M${x + 34} 280 H${x + 56} M${x + 34} 288 H${x + 56}" stroke="#262b52" stroke-width="1.5"/><path d="M${x + 20} 268 Q${x + 20} 222 ${x + 45} 222 Q${x + 70} 222 ${x + 70} 268Z" fill="#171a36" stroke="#5d6498" stroke-width="2.5"/>
         <path d="M${x + 31} 268 V236 M${x + 40} 268 V230 M${x + 50} 268 V230 M${x + 59} 268 V236" stroke="#5d6498" stroke-width="2.5"/></g>
       <g id="cr-coin-${i}" transform="translate(${x + 45},130)">
         <circle r="35" fill="rgba(0,0,0,.28)" cy="4"/>
@@ -1265,6 +1304,14 @@ function crSceneSVG(rules) {
       <radialGradient id="crGold" cx="35%" cy="30%"><stop offset="0" stop-color="#fff3a0"/><stop offset=".55" stop-color="#ffc928"/><stop offset="1" stop-color="#d98f00"/></radialGradient>
       <radialGradient id="crGreen" cx="35%" cy="30%"><stop offset="0" stop-color="#6ff08e"/><stop offset="1" stop-color="#16963a"/></radialGradient>
       <radialGradient id="crBlue" cx="35%" cy="30%"><stop offset="0" stop-color="#7f8cff"/><stop offset="1" stop-color="#3b479e"/></radialGradient>
+      <linearGradient id="crFeather" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dfe0ea"/></linearGradient>
+      <linearGradient id="crLeg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb62e"/><stop offset="1" stop-color="#d98414"/></linearGradient>
+      <linearGradient id="crShine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".45" stop-color="#fff" stop-opacity=".02"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
+      <linearGradient id="crBeamCar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6b0" stop-opacity=".55"/><stop offset="1" stop-color="#fff6b0" stop-opacity="0"/></linearGradient>
+      <linearGradient id="crAsph" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c3160"/><stop offset=".6" stop-color="#383e72"/><stop offset="1" stop-color="#2a2f5a"/></linearGradient>
+      <radialGradient id="crLamp" cx="50%" cy="0%" r="80%"><stop offset="0" stop-color="#fff2b0" stop-opacity=".35"/><stop offset="1" stop-color="#fff2b0" stop-opacity="0"/></radialGradient>
+      <radialGradient id="crManhole" cx="40%" cy="35%"><stop offset="0" stop-color="#8c93c4"/><stop offset="1" stop-color="#3a3f6e"/></radialGradient>
+      <filter id="crNoise" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .22 0"/></filter>
       <linearGradient id="crBeam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".0"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient>
     </defs>
     <g id="cr-world" style="transition:transform .55s ease-in-out">
@@ -1364,7 +1411,7 @@ function crScreen(rd, rules) {
     <div class="card" style="padding:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 6px 8px">
         <h2 style="margin:0;font-weight:900;letter-spacing:.5px">CHICKEN <span style="color:#ffd23f">ROAD</span></h2>
-        <span style="display:flex;gap:8px;align-items:center"><button id="cr-mute" class="friend-username" style="border:0;cursor:pointer;color:inherit;font-size:14px">${CRSound.muted ? "🔇" : "🔊"}</button><span class="friend-username" id="cr-bal"></span></span></div>
+        <span style="display:flex;gap:8px;align-items:center"><button id="cr-mute" class="friend-username" style="border:0;cursor:pointer;color:#fff;background:rgba(255,255,255,.12);font-size:15px">${CRSound.muted ? "🔇" : "🔊"}</button><span class="friend-username" id="cr-bal"></span></span></div>
       ${crSceneSVG(rules)}
       <div id="cr-info" class="center-note" style="margin:8px 0 4px"></div>
       <div class="error-text" id="cr-err"></div>
@@ -1373,7 +1420,7 @@ function crScreen(rd, rules) {
     <div class="card"><div class="center-note" style="text-align:left">
       <b>How it works</b> — one difficulty. Every lane is an independent <b>${rules.safe_chance}% safe / ${100 - rules.safe_chance}% car</b>,
       decided by the server's secure random generator before you start and never adjusted for any player.
-      Chance to cross <i>k</i> lanes = 50%<sup><i>k</i></sup>. Payout = 2<sup><i>k</i></sup> × ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} (house edge ${rules.house_edge_percent}%).
+      Chance to cross <i>k</i> lanes = ${rules.safe_chance}%<sup><i>k</i></sup>. Payout = 2<sup><i>k</i></sup> × ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} Expected return to the player at <i>k</i> lanes = ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} × ${(2 * rules.safe_chance / 100).toFixed(2)}<sup><i>k</i></sup> (about ${(100 * (1 - Number(rules.house_edge_percent) / 100) * (2 * rules.safe_chance / 100)).toFixed(0)}% on lane 1, less each further lane).
       Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
       <div style="margin-top:6px">${rules.steps.map((t) => `${t.step}: ×${Number(t.multiplier).toFixed(2)} (${t.survive_chance}%)`).join(" · ")}</div>
     </div></div>
@@ -1390,13 +1437,13 @@ function crScreen(rd, rules) {
   const bar = (inner) => `<div style="display:flex;gap:8px;align-items:stretch;margin-top:6px">${inner}</div>`;
   const setUI = (d) => {
     if (d.status === "active") {
-      info.innerHTML = `Bet ${d.bet} ETB · <b>×${Number(d.multiplier).toFixed(2)}</b> = <b>${d.potential_payout} ETB</b>` + (d.next_multiplier ? ` · Next ×${Number(d.next_multiplier).toFixed(2)} (50%)` : "");
+      info.innerHTML = `Bet ${d.bet} ETB · <b>×${Number(d.multiplier).toFixed(2)}</b> = <b>${d.potential_payout} ETB</b>` + (d.next_multiplier ? ` · Next ×${Number(d.next_multiplier).toFixed(2)} (${rules.safe_chance}%)` : "");
       ctr.innerHTML = bar(`<button class="btn" id="cr-cash" style="flex:1;margin:0;background:#ffc21a;color:#2a1c00;font-weight:800" ${d.step < 1 ? "disabled" : ""}>CASH OUT<br>${d.potential_payout} ETB</button>
         <button class="btn" id="cr-go" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`);
       document.getElementById("cr-go").addEventListener("click", doStep);
       document.getElementById("cr-cash").addEventListener("click", doCash);
     } else if (d.status === "idle") {
-      info.textContent = "Pick your bet, press GO, then keep crossing lanes. Each lane is a 50/50.";
+      info.textContent = "Pick your bet, press GO, then keep crossing lanes. Every lane is risky — ${rules.safe_chance}% safe.";
       ctr.innerHTML = `<div class="field" style="margin-bottom:6px"><label>Bet (ETB ${rules.min_bet}–${rules.max_bet})</label><input id="cr-bet" type="number" inputmode="decimal" value="${window._crBet || 10}" /></div>
         <div class="stake-grid" style="margin-bottom:6px">${["5", "10", "50", "100", "500"].map((x) => `<button class="stake-btn" data-q="${x}">${x}</button>`).join("")}</div>
         ${bar(`<button class="btn" id="cr-start" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`)}`;
