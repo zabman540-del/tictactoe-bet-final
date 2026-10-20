@@ -55,8 +55,8 @@ def _check_bet(bet) -> Decimal:
 
 # ---------------- Mines math ----------------
 
-MINES_FIXED = {1: Decimal("1.42"), 2: Decimal("2"), 3: Decimal("2.5"),
-               4: Decimal("3"), 5: Decimal("3.5"), 6: Decimal("5")}   # fixed payout table, shown to players
+MINES_FIXED = {1: Decimal("1.20"), 2: Decimal("1.50"), 3: Decimal("1.80"),
+               4: Decimal("2.10"), 5: Decimal("2.40"), 6: Decimal("3.00")}   # fixed payout table, shown to players
 MINES_MAX_PICKS = max(MINES_FIXED)                                   # auto cash-out at the last step
 
 
@@ -253,9 +253,9 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
 # path is drawn with the OS CSPRNG when the round starts and kept secret on the
 # server. Fair multiplier = 2^k; we pay 2^k x (1 - CHICKEN_EDGE), disclosed.
 
-CHICKEN_EDGE = Decimal("0.08")
+CHICKEN_EDGE = Decimal("0.12")
 CHICKEN_MAX_STEPS = 10
-CHICKEN_SAFE_CHANCE = 48
+CHICKEN_SAFE_CHANCE = 45
 
 
 def chicken_multiplier(step: int) -> Decimal:
@@ -347,6 +347,173 @@ def chicken_active(db: Session, user_id):
     r = db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "chicken",
                                    GameRound.status == "active").first()
     return _chicken_public(r) if r else None
+
+
+# ---------------- Nova Flight (crash) ----------------
+# The server draws the crash point with the OS CSPRNG BEFORE takeoff and keeps it
+# secret. The multiplier is a pure function of elapsed time: m(t) = e^(g*t).
+# P(flight reaches x) = (1 - FLIGHT_EDGE) / x, so every cash-out target has the same
+# disclosed house edge. Cash-outs are judged only by the server clock.
+
+import math
+import time
+
+FLIGHT_EDGE = Decimal("0.10")
+FLIGHT_GROWTH = 0.09          # per second:  2x ~ 7.7s, 5x ~ 18s, 10x ~ 26s
+FLIGHT_TAKEOFF_DELAY = 1.5    # seconds between bet and takeoff
+FLIGHT_MAX_CRASH = Decimal("1000")
+FLIGHT_MIN_TARGET = Decimal("1.01")
+
+
+def _flight_draw_crash() -> Decimal:
+    u = secrets.randbelow(10 ** 9) / 10 ** 9          # [0, 1)
+    c = (Decimal(1) - FLIGHT_EDGE) / (Decimal(1) - Decimal(str(u)))
+    c = (c * 100).to_integral_value(rounding=ROUND_DOWN) / 100
+    return max(Decimal("1.00"), min(c, FLIGHT_MAX_CRASH))
+
+
+def _flight_mult_at(t: float) -> Decimal:
+    if t <= 0:
+        return Decimal("1.00")
+    return (Decimal(str(math.exp(FLIGHT_GROWTH * t))) * 100).to_integral_value(rounding=ROUND_DOWN) / 100
+
+
+def _flight_time_of(mult: Decimal) -> float:
+    return math.log(float(mult)) / FLIGHT_GROWTH if mult > 1 else 0.0
+
+
+def flight_rules() -> dict:
+    return {"house_edge_percent": str(FLIGHT_EDGE * 100), "growth": FLIGHT_GROWTH,
+            "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
+            "min_target": str(FLIGHT_MIN_TARGET), "max_multiplier": str(FLIGHT_MAX_CRASH),
+            "takeoff_delay": FLIGHT_TAKEOFF_DELAY,
+            "samples": [{"x": str(x), "chance": str((((1 - FLIGHT_EDGE) / Decimal(x)) * 100).quantize(Decimal("0.01")))}
+                        for x in (1.5, 2, 3, 5, 10, 50, 100)]}
+
+
+def _flight_resolve(db, r: GameRound) -> bool:
+    """Settle an active round if its time has come. Caller holds the row lock. True if changed."""
+    if r.status != "active":
+        return False
+    p = r.params
+    crash = Decimal(p["crash"])
+    now = time.time()
+    t = now - p["t0"]
+    stop = None
+    if p.get("target"):
+        stop = Decimal(p["target"])
+    cap = MAX_PAYOUT / r.bet_amount
+    if stop is None or cap < stop:
+        stop = cap
+    if stop < crash and stop >= Decimal("1.00"):
+        if t >= _flight_time_of(stop):
+            r.multiplier = _q2(stop) if stop >= 1 else Decimal("1.00")
+            _settle_payout(db, r, "cashed_out")
+            return True
+    elif t >= _flight_time_of(crash):
+        r.status, r.multiplier, r.payout_amount, r.settled_at = "lost", Decimal("0"), Decimal("0"), _now()
+        return True
+    return False
+
+
+def _flight_public(r: GameRound) -> dict:
+    p = r.params
+    out = {"round_id": str(r.id), "game": "flight", "status": r.status, "bet": str(r.bet_amount),
+           "t0_ms": int(p["t0"] * 1000), "server_now_ms": int(time.time() * 1000),
+           "growth": FLIGHT_GROWTH, "target": p.get("target"),
+           "multiplier": str(r.multiplier), "payout": str(r.payout_amount)}
+    if r.status != "active":
+        out["crash"] = p["crash"]          # revealed only after the round ends
+    return out
+
+
+def flight_start(db: Session, user_id, bet, target=None) -> dict:
+    bet = _check_bet(bet)
+    tgt = None
+    if target not in (None, "", 0):
+        try:
+            tgt = Decimal(str(target))
+        except Exception:
+            raise GameError("Invalid auto cash-out value.")
+        if tgt < FLIGHT_MIN_TARGET or tgt > FLIGHT_MAX_CRASH:
+            raise GameError(f"Auto cash-out must be between {FLIGHT_MIN_TARGET} and {FLIGHT_MAX_CRASH}.")
+        tgt = _q2(tgt)
+    wallet = _get_locked_wallet(db, user_id)
+    active = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "flight",
+                                         GameRound.status == "active").with_for_update().first())
+    if active:
+        if _flight_resolve(db, active):
+            db.flush()
+        else:
+            db.rollback()
+            raise GameError("You already have a flight in the air.")
+    if wallet.available_balance < bet:
+        db.rollback()
+        raise GameError("Not enough balance.")
+    rnd = GameRound(id=uuid.uuid4(), user_id=user_id, game="flight", bet_amount=bet, status="active",
+                    params={"crash": str(_flight_draw_crash()), "t0": time.time() + FLIGHT_TAKEOFF_DELAY,
+                            "target": str(tgt) if tgt else None},
+                    multiplier=Decimal("1"))
+    db.add(rnd)
+    wallet.available_balance -= bet
+    db.flush()
+    _write_ledger_row(db, wallet, "house_bet", -bet, f"round:{rnd.id}:bet", "house_round", rnd.id, "Nova Flight bet")
+    db.commit()
+    return _flight_public(rnd)
+
+
+def flight_state(db: Session, user_id, round_id) -> dict:
+    r = _load_round_locked(db, user_id, round_id, "flight")
+    _flight_resolve(db, r)
+    out = _flight_public(r)
+    db.commit()
+    return out
+
+
+def flight_cashout(db: Session, user_id, round_id) -> dict:
+    r = _load_round_locked(db, user_id, round_id, "flight")
+    if r.status != "active":
+        out = _flight_public(r); db.rollback(); return out
+    if _flight_resolve(db, r):               # crashed (or auto cash-out hit) before this tap arrived
+        out = _flight_public(r); db.commit(); return out
+    t = time.time() - r.params["t0"]
+    if t < 0:
+        db.rollback()
+        raise GameError("Wait for takeoff.")
+    m = _flight_mult_at(t)
+    if m < Decimal("1.01"):
+        db.rollback()
+        raise GameError("Too early to cash out.")
+    r.multiplier = m
+    _settle_payout(db, r, "cashed_out")
+    out = _flight_public(r)
+    db.commit()
+    return out
+
+
+def flight_active(db: Session, user_id):
+    r = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "flight",
+                                    GameRound.status == "active").with_for_update().first())
+    if not r:
+        db.rollback()
+        return None
+    _flight_resolve(db, r)
+    out = _flight_public(r)
+    db.commit()
+    return out
+
+
+def flight_recent(db: Session, limit=24) -> list:
+    rows = (db.query(GameRound).filter(GameRound.game == "flight", GameRound.status != "active")
+            .order_by(GameRound.settled_at.desc()).limit(limit).all())
+    out = []
+    for r in rows:
+        c = r.params.get("crash")
+        if c and r.status == "lost":
+            out.append(c)                     # flew away at this multiplier
+        elif c:
+            out.append(c)                     # cashed out: still show where it would have flown away
+    return out
 
 
 # ---------------- History ----------------

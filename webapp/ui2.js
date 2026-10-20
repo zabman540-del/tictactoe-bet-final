@@ -126,6 +126,7 @@ renderHome = async function () {
     <div class="game-grid">
       ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross the road, cash out")}
       ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, 15 safe")}
+      ${gameCard("flight", "g-flight", "DEMO", "Nova Flight", "Crash game · virtual points")}
       ${gameCard("tictactoe", "g-ttt", "1 vs 1", "Tic-Tac-Toe", "Challenge a friend")}
       ${gameCard("rps", "g-rps", "1 vs 1", "Rock Paper Scissors", "Quick duel")}
     </div>
@@ -139,13 +140,14 @@ renderHome = async function () {
 };
 
 function gameCard(id, cls, tag, name, sub) {
-  const art = { chicken: "🐔", mines: "💣", tictactoe: "⭕", rps: "✌️" }[id];
+  const art = { chicken: "🐔", mines: "💣", tictactoe: "⭕", rps: "✌️", flight: "✈️" }[id];
   return `<button class="game-card ${cls}" data-game="${id}"><span class="tag">${tag}</span><span class="art">${art}</span><b>${name}</b><small>${sub}</small></button>`;
 }
 function bindGameCards() {
   screenEl.querySelectorAll("[data-game]").forEach((b) => b.addEventListener("click", () => {
     const g = b.dataset.game;
-    if (g === "chicken") renderChicken();
+    if (g === "flight") { window.location.hash = "#/flight"; }
+    else if (g === "chicken") renderChicken();
     else if (g === "mines") renderMines();
     else renderFriendGame(g);
   }));
@@ -174,15 +176,16 @@ renderPlayChooseGame = async function () {
     </div>
     <div class="sec-title">🎰 Casino · solo vs the house</div>
     <div class="game-grid">
-      ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Up to ×921 · 50/50 steps")}
+      ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross lanes, cash out any time")}
       ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, cash out any time")}
+      ${gameCard("flight", "g-flight", "DEMO", "Nova Flight", "Crash game · virtual points")}
     </div>
     <p class="center-note" style="text-align:center;margin-top:16px">Casino outcomes are decided by the server, never by the app.</p>`;
   const rs = document.getElementById("resume");
   if (rs) rs.addEventListener("click", () => { window.location.hash = `#/rps/${lobby.mine}`; });
   screenEl.querySelectorAll("[data-game]").forEach((b) => b.addEventListener("click", () => {
     const g = b.dataset.game;
-    if (g === "chicken") renderChicken(); else if (g === "mines") renderMines(); else renderFriendGame(g);
+    if (g === "flight") window.location.hash = "#/flight"; else if (g === "chicken") renderChicken(); else if (g === "mines") renderMines(); else renderFriendGame(g);
   }));
 };
 
