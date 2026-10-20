@@ -126,7 +126,7 @@ renderHome = async function () {
     <div class="game-grid">
       ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross the road, cash out")}
       ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, 15 safe")}
-      ${gameCard("flight", "g-flight", "DEMO", "Nova Flight", "Crash game · virtual points")}
+      ${gameCard("flight", "g-flight", "CASINO", "Nova Flight", "3D crash game · cash out in time")}
       ${gameCard("tictactoe", "g-ttt", "1 vs 1", "Tic-Tac-Toe", "Challenge a friend")}
       ${gameCard("rps", "g-rps", "1 vs 1", "Rock Paper Scissors", "Quick duel")}
     </div>
@@ -178,7 +178,7 @@ renderPlayChooseGame = async function () {
     <div class="game-grid">
       ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross lanes, cash out any time")}
       ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, cash out any time")}
-      ${gameCard("flight", "g-flight", "DEMO", "Nova Flight", "Crash game · virtual points")}
+      ${gameCard("flight", "g-flight", "CASINO", "Nova Flight", "3D crash game · cash out in time")}
     </div>
     <p class="center-note" style="text-align:center;margin-top:16px">Casino outcomes are decided by the server, never by the app.</p>`;
   const rs = document.getElementById("resume");

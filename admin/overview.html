@@ -16,7 +16,7 @@
   .kpi .l{color:#8b95ad;font-size:12px;text-transform:uppercase;letter-spacing:.8px;margin-top:2px}
   .kpi .s{color:#8b95ad;font-size:12px;margin-top:6px}
   .green{color:#34d17a}.red{color:#ff6b6b}.gold{color:#ffd23f}
-  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:16px}
   .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
   .game{background:#1a2032;border:1px solid #2a3348;border-radius:14px;padding:16px;position:relative;overflow:hidden}
   .game .ic{font-size:30px}.game h3{margin:6px 0 2px;font-size:15px}
@@ -59,14 +59,14 @@
 <script src="api.js"></script>
 <script>
 requireLogin();
-const COLORS = { ttt: "#4da3ff", rps: "#b980ff", chicken: "#ffb020", mines: "#34d17a" };
+const COLORS = { ttt: "#4da3ff", rps: "#b980ff", chicken: "#ffb020", mines: "#34d17a", flight: "#ff3d4f" };
 const ETB = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ETB";
 const sign = (v) => (Number(v) >= 0 ? "green" : "red");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = (iso) => { const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
 
 function chart(daily) {
-  const keys = ["ttt", "rps", "chicken", "mines"];
+  const keys = ["ttt", "rps", "chicken", "mines", "flight"];
   const W = 640, H = 220, pad = 30, bw = (W - pad * 2) / daily.length;
   const tot = daily.map((d) => keys.reduce((a, k) => a + Number(d[k]), 0));
   const pos = Math.max(1, ...daily.map((d) => keys.reduce((a, k) => a + Math.max(0, Number(d[k])), 0)));
@@ -122,9 +122,9 @@ function render(o) {
 
     <div class="two">
       <div class="card"><h3>Earnings — last 14 days</h3>
-        <div class="legend">${[["ttt", "Tic-Tac-Toe"], ["rps", "Rock Paper Scissors"], ["chicken", "Chicken Road"], ["mines", "Mines"]].map(([k, n]) => `<span><i style="background:${COLORS[k]}"></i>${n}</span>`).join("")}</div>
+        <div class="legend">${[["ttt", "Tic-Tac-Toe"], ["rps", "Rock Paper Scissors"], ["chicken", "Chicken Road"], ["mines", "Mines"], ["flight", "Nova Flight"]].map(([k, n]) => `<span><i style="background:${COLORS[k]}"></i>${n}</span>`).join("")}</div>
         ${chart(o.daily)}
-        <div class="s" style="color:#667089;font-size:12px;margin-top:6px">Tic-Tac-Toe and RPS = platform fees. Chicken Road and Mines = bets minus payouts (can be negative on a lucky day).</div></div>
+        <div class="s" style="color:#667089;font-size:12px;margin-top:6px">Tic-Tac-Toe and RPS = platform fees. Chicken Road, Mines and Nova Flight = bets minus payouts (can be negative on a lucky day).</div></div>
       <div class="card"><h3>Players</h3>
         <table class="q"><tr><th>Wallet total held</th><td><b>${ETB(m.players_hold)}</b></td></tr>
         <tr><th>Deposits pending</th><td>${m.deposits_pending_count} · ${ETB(m.deposits_pending_amount)}</td></tr>

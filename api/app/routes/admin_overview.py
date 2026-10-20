@@ -3,7 +3,7 @@ routes/admin_overview.py
 
 Data for the admin "Overview" page: money in/out, requests waiting,
 and how much the house earned from each of the 4 games
-(Tic-Tac-Toe, Rock Paper Scissors, Chicken Road, Mines).
+(Tic-Tac-Toe, Rock Paper Scissors, Chicken Road, Mines, Nova Flight).
 
 Earnings:
   - TTT / RPS : the platform fee taken from each finished (non-draw) match.
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, text
 from sqlalchemy.orm import Session
 
 from app.core.admin_auth import get_current_admin
@@ -95,6 +95,16 @@ def _overview(db: Session):
         n, bet, paid = q.one()
         return n, bet, _d(bet) - _d(paid)
 
+    def flight(since=None):
+        q = ("SELECT count(*), coalesce(sum(amount),0), coalesce(sum(coalesce(payout,0)),0) "
+             "FROM nova_flight_bets WHERE settled" + (" AND created_at >= :s" if since is not None else ""))
+        try:
+            n, bet, paid = db.execute(text(q), {"s": since} if since is not None else {}).one()
+        except Exception:
+            db.rollback()
+            return 0, 0, 0
+        return n, bet, _d(bet) - _d(paid)
+
     def row(key, label, icon, today, total):
         return {"key": key, "label": label, "icon": icon,
                 "rounds": total[0], "volume": _s(total[1]), "earned": _s(total[2]),
@@ -105,13 +115,14 @@ def _overview(db: Session):
         row("rps", "Rock Paper Scissors", "✊", rps(day_ago), rps()),
         row("chicken", "Chicken Road", "🐔", house("chicken", day_ago), house("chicken")),
         row("mines", "Mines", "💣", house("mines", day_ago), house("mines")),
+        row("flight", "Nova Flight", "✈️", house("flight", day_ago), house("flight")),
     ]
     total_earned = sum(_d(g["earned"]) for g in games)
     earned_24h = sum(_d(g["earned_24h"]) for g in games)
 
     # ---------- last 14 days (profit per day, per game) ----------
     days = [(start14 + timedelta(days=i)).date() for i in range(14)]
-    series = {d.isoformat(): {"ttt": Decimal(0), "rps": Decimal(0), "chicken": Decimal(0), "mines": Decimal(0)} for d in days}
+    series = {d.isoformat(): {"ttt": Decimal(0), "rps": Decimal(0), "chicken": Decimal(0), "mines": Decimal(0), "flight": Decimal(0)} for d in days}
 
     m_day = cast(Match.settled_at, Date)
     for d, v in db.query(m_day, func.sum(Match.platform_fee)).filter(
@@ -126,10 +137,18 @@ def _overview(db: Session):
     g_day = cast(GameRound.settled_at, Date)
     for g, d, bet, paid in db.query(GameRound.game, g_day, func.sum(GameRound.bet_amount),
                                     func.sum(GameRound.payout_amount)).filter(
-            GameRound.status != "active", GameRound.game.in_(["chicken", "mines"]),
+            GameRound.status != "active", GameRound.game.in_(["chicken", "mines", "flight"]),
             GameRound.settled_at >= start14).group_by(GameRound.game, g_day).all():
         if d and d.isoformat() in series:
             series[d.isoformat()][g] = _d(bet) - _d(paid)
+    try:
+        for d, bet, paid in db.execute(text(
+                "SELECT created_at::date, sum(amount), sum(coalesce(payout,0)) FROM nova_flight_bets "
+                "WHERE settled AND created_at >= :s GROUP BY 1"), {"s": start14}).all():
+            if d and d.isoformat() in series:
+                series[d.isoformat()]["flight"] = _d(bet) - _d(paid)
+    except Exception:
+        db.rollback()
     daily = [{"date": k, **{g: str(v) for g, v in vals.items()}} for k, vals in series.items()]
 
     # ---------- queues ----------

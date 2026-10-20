@@ -1,4 +1,6 @@
-"""routes/flight.py — Nova Flight (virtual points). Auth via Telegram initData."""
+"""routes/flight.py — Nova Flight (real ETB, provably fair). Auth via Telegram initData."""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,6 +14,7 @@ router = APIRouter(prefix="/webapp/flight")
 
 class BetIn(BaseModel):
     amount: str
+    auto_cashout: Optional[str] = None
 
 
 def _run(fn, db):
@@ -32,16 +35,10 @@ def flight_state(response: Response, db: Session = Depends(get_db), x_telegram_i
 @router.post("/bet")
 def flight_bet(p: BetIn, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
     u = _webapp_user(db, x_telegram_init_data)
-    return _run(lambda: nf.place_bet(db, u.internal_id, p.amount), db)
+    return _run(lambda: nf.place_bet(db, u.internal_id, p.amount, p.auto_cashout), db)
 
 
 @router.post("/cashout")
 def flight_cashout(db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
     u = _webapp_user(db, x_telegram_init_data)
     return _run(lambda: nf.cash_out(db, u.internal_id), db)
-
-
-@router.post("/refill")
-def flight_refill(db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
-    u = _webapp_user(db, x_telegram_init_data)
-    return _run(lambda: nf.refill(db, u.internal_id), db)

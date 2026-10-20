@@ -358,18 +358,25 @@ def chicken_active(db: Session, user_id):
 import math
 import time
 
-FLIGHT_EDGE = Decimal("0.10")
-FLIGHT_GROWTH = 0.09          # per second:  2x ~ 7.7s, 5x ~ 18s, 10x ~ 26s
+import hashlib
+import hmac
+
+FLIGHT_EDGE_PCT = 3                       # 3% house edge: P(flight reaches x) = 97% / x
+FLIGHT_EDGE = Decimal(FLIGHT_EDGE_PCT) / 100
+FLIGHT_GROWTH = 0.10          # per second:  2x ~ 6.9s, 5x ~ 16s, 10x ~ 23s
 FLIGHT_TAKEOFF_DELAY = 1.5    # seconds between bet and takeoff
 FLIGHT_MAX_CRASH = Decimal("1000")
 FLIGHT_MIN_TARGET = Decimal("1.01")
 
 
-def _flight_draw_crash() -> Decimal:
-    u = secrets.randbelow(10 ** 9) / 10 ** 9          # [0, 1)
-    c = (Decimal(1) - FLIGHT_EDGE) / (Decimal(1) - Decimal(str(u)))
-    c = (c * 100).to_integral_value(rounding=ROUND_DOWN) / 100
-    return max(Decimal("1.00"), min(c, FLIGHT_MAX_CRASH))
+def flight_crash_from_seed(seed: str, round_id: str) -> Decimal:
+    """Provably fair: crash = f(HMAC_SHA256(server_seed, round_id)). Integer maths only, so
+    players can recompute it exactly. The SHA-256 of the seed is shown BEFORE the flight."""
+    h = hmac.new(seed.encode(), str(round_id).encode(), hashlib.sha256).hexdigest()
+    r = int(h[:13], 16)                                    # 52 random bits
+    c100 = (100 - FLIGHT_EDGE_PCT) * (1 << 52) // ((1 << 52) - r)
+    c100 = max(100, min(int(FLIGHT_MAX_CRASH * 100), c100))
+    return Decimal(c100) / 100
 
 
 def _flight_mult_at(t: float) -> Decimal:
@@ -383,7 +390,7 @@ def _flight_time_of(mult: Decimal) -> float:
 
 
 def flight_rules() -> dict:
-    return {"house_edge_percent": str(FLIGHT_EDGE * 100), "growth": FLIGHT_GROWTH,
+    return {"house_edge_percent": str(FLIGHT_EDGE * 100), "edge_pct": FLIGHT_EDGE_PCT, "growth": FLIGHT_GROWTH,
             "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
             "min_target": str(FLIGHT_MIN_TARGET), "max_multiplier": str(FLIGHT_MAX_CRASH),
             "takeoff_delay": FLIGHT_TAKEOFF_DELAY,
@@ -421,9 +428,11 @@ def _flight_public(r: GameRound) -> dict:
     out = {"round_id": str(r.id), "game": "flight", "status": r.status, "bet": str(r.bet_amount),
            "t0_ms": int(p["t0"] * 1000), "server_now_ms": int(time.time() * 1000),
            "growth": FLIGHT_GROWTH, "target": p.get("target"),
-           "multiplier": str(r.multiplier), "payout": str(r.payout_amount)}
+           "multiplier": str(r.multiplier), "payout": str(r.payout_amount),
+           "seed_hash": p.get("seed_hash")}
     if r.status != "active":
         out["crash"] = p["crash"]          # revealed only after the round ends
+        out["server_seed"] = p.get("seed")
     return out
 
 
@@ -450,8 +459,12 @@ def flight_start(db: Session, user_id, bet, target=None) -> dict:
     if wallet.available_balance < bet:
         db.rollback()
         raise GameError("Not enough balance.")
-    rnd = GameRound(id=uuid.uuid4(), user_id=user_id, game="flight", bet_amount=bet, status="active",
-                    params={"crash": str(_flight_draw_crash()), "t0": time.time() + FLIGHT_TAKEOFF_DELAY,
+    rid = uuid.uuid4()
+    seed = secrets.token_hex(32)
+    rnd = GameRound(id=rid, user_id=user_id, game="flight", bet_amount=bet, status="active",
+                    params={"crash": str(flight_crash_from_seed(seed, str(rid))), "seed": seed,
+                            "seed_hash": hashlib.sha256(seed.encode()).hexdigest(),
+                            "t0": time.time() + FLIGHT_TAKEOFF_DELAY,
                             "target": str(tgt) if tgt else None},
                     multiplier=Decimal("1"))
     db.add(rnd)

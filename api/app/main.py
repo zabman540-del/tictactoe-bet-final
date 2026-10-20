@@ -18,7 +18,7 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.core.rate_limit import limiter
 from app.routes import (
-    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games, rps, app_extras, flight,
+    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games, rps, app_extras,
     admin_auth, admin_deposits, admin_withdrawals,
     admin_dashboard, admin_overview, admin_users,
 )
@@ -54,7 +54,6 @@ app.include_router(friends.router, tags=["friends"])
 app.include_router(webapp.router, tags=["webapp"])
 app.include_router(games.router, tags=["games"])
 app.include_router(rps.router, tags=["rps"])
-app.include_router(flight.router, tags=["flight"])
 app.include_router(app_extras.router, tags=["app"])
 app.include_router(admin_auth.router, tags=["admin"])
 app.include_router(admin_deposits.router, tags=["admin"])
@@ -91,7 +90,7 @@ os.makedirs("/app/uploads", exist_ok=True)
 @app.get("/health")
 def health_check():
     """Simple endpoint to confirm the API is alive - useful for Docker health checks."""
-    return {"status": "ok", "build": "app-v3-0"}
+    return {"status": "ok", "build": "app-v3-1"}
 
 
 async def timeout_checker_loop():
