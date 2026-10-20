@@ -167,7 +167,11 @@ async function renderFlight() {
   const here = () => alive && document.getElementById("fl-canvas") === cv;
   const poll = async () => {
     if (!here()) { window.removeEventListener("resize", fit); return; }
-    try { flApply(await apiGet("/webapp/flight/state")); flTop(); flPanel(); } catch (e) { FL.msg = e.message; }
+    try { flApply(await apiGet("/webapp/flight/state")); flTop(); flPanel(); } catch (e) {
+      FL.msg = e.message;
+      const c = document.getElementById("fl-ctl");
+      if (c && !FL.st) c.innerHTML = `<div class="error-text">${e.message}</div>`;
+    }
     const fast = FL.st && !FL.ended && flNow() >= FL.st.round.start_ms;
     setTimeout(poll, fast ? 450 : 900);
   };
