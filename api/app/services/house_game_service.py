@@ -20,13 +20,11 @@ from app.models.models import GameRound
 from app.services.wallet_service import _get_locked_wallet, _write_ledger_row
 
 HOUSE_EDGE = Decimal("0.03")          # Dice edge, disclosed to players
-MINES_EDGE = Decimal("0.15")          # Mines edge, disclosed to players
 DICE_ENABLED = False                  # Dice is "coming soon"; set True to open it
 MIN_BET = Decimal("1")
 MAX_BET = Decimal("500")
 MAX_PAYOUT = Decimal("2000")          # per-round cap; Mines auto cashes out when reached
 GRID = 25
-MINE_OPTIONS = [10]               # one mode only: 10 mines, 15 safe
 DICE_MIN_CHANCE = 2                   # percent
 DICE_MAX_CHANCE = 95
 
@@ -53,11 +51,25 @@ def _check_bet(bet) -> Decimal:
     return bet
 
 
-# ---------------- Mines math ----------------
+# ---------------- Difficulty tables (shared by Mines and Chicken Road) ----------------
+# Fixed payout per step, shown to players. Step k = k safe picks / lanes crossed.
 
-MINES_FIXED = {1: Decimal("1.20"), 2: Decimal("1.50"), 3: Decimal("1.80"),
-               4: Decimal("2.10"), 5: Decimal("2.40"), 6: Decimal("3.00")}   # fixed payout table, shown to players
-MINES_MAX_PICKS = max(MINES_FIXED)                                   # auto cash-out at the last step
+DIFFICULTIES = ("easy", "medium", "hardcore")
+DIFF_LABEL = {"easy": "Easy", "medium": "Medium", "hardcore": "Hardcore"}
+STEP_TABLE = {
+    "easy":     [Decimal(x) for x in ("1.10", "1.20", "1.30", "1.40", "1.50", "1.65", "1.80", "2.00", "2.20", "2.50")],
+    "medium":   [Decimal(x) for x in ("1.20", "1.50", "1.90", "2.40", "3.00", "3.80", "4.80", "6.00", "7.50", "10.00")],
+    "hardcore": [Decimal(x) for x in ("1.50", "3.00", "6.00", "12.00", "25.00", "50.00", "100.00", "250.00", "500.00", "1000.00")],
+}
+MAX_STEPS = 10
+
+# ---------------- Mines math ----------------
+# Difficulty = number of mines on the 5x5 board. Every step's average return stays under 100%.
+
+MINES_BY_DIFF = {"easy": 3, "medium": 5, "hardcore": 11}
+DIFF_BY_MINES = {v: k for k, v in MINES_BY_DIFF.items()}
+MINE_OPTIONS = list(MINES_BY_DIFF.values())
+MINES_MAX_PICKS = MAX_STEPS                                          # auto cash-out at the last step
 
 
 def mines_win_prob(mines: int, k: int) -> Decimal:
@@ -67,21 +79,22 @@ def mines_win_prob(mines: int, k: int) -> Decimal:
 def mines_multiplier(mines: int, safe_picked: int) -> Decimal:
     if safe_picked <= 0:
         return Decimal("1")
-    return MINES_FIXED[safe_picked]
+    return STEP_TABLE[DIFF_BY_MINES[mines]][safe_picked - 1]
 
 
 def mines_table(mines: int) -> list:
-    return [{"picks": k, "multiplier": str(m),
-             "win_chance": str((mines_win_prob(mines, k) * 100).quantize(Decimal("0.1"))),
-             "return_percent": str((mines_win_prob(mines, k) * m * 100).quantize(Decimal("0.1")))}
-            for k, m in MINES_FIXED.items()]
+    return [{"picks": k, "multiplier": str(mines_multiplier(mines, k)),
+             "win_chance": str((mines_win_prob(mines, k) * 100).quantize(Decimal("0.01"))),
+             "return_percent": str((mines_win_prob(mines, k) * mines_multiplier(mines, k) * 100).quantize(Decimal("0.1")))}
+            for k in range(1, MINES_MAX_PICKS + 1)]
 
 
 def mines_rules() -> dict:
     return {
         "max_picks": MINES_MAX_PICKS,
         "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
-        "options": [{"mines": m, "safe": GRID - m, "table": mines_table(m)} for m in MINE_OPTIONS],
+        "options": [{"difficulty": d, "label": DIFF_LABEL[d], "mines": MINES_BY_DIFF[d], "safe": GRID - MINES_BY_DIFF[d],
+                     "table": mines_table(MINES_BY_DIFF[d])} for d in DIFFICULTIES],
     }
 
 
@@ -89,7 +102,8 @@ def _mines_public(r: GameRound, reveal_all=False) -> dict:
     p = r.params
     out = {
         "round_id": str(r.id), "game": "mines", "status": r.status,
-        "bet": str(r.bet_amount), "mines": p["mines"], "revealed": p["revealed"],
+        "bet": str(r.bet_amount), "mines": p["mines"], "difficulty": DIFF_BY_MINES.get(p["mines"], "hardcore"),
+        "revealed": p["revealed"],
         "multiplier": str(r.multiplier), "payout": str(r.payout_amount),
         "potential_payout": str(_q2(min(r.bet_amount * r.multiplier, MAX_PAYOUT))),
     }
@@ -101,10 +115,14 @@ def _mines_public(r: GameRound, reveal_all=False) -> dict:
     return out
 
 
-def mines_start(db: Session, user_id, bet, mines: int) -> dict:
+def mines_start(db: Session, user_id, bet, mines=None, difficulty=None) -> dict:
     bet = _check_bet(bet)
+    if difficulty:
+        if difficulty not in MINES_BY_DIFF:
+            raise GameError("Invalid difficulty.")
+        mines = MINES_BY_DIFF[difficulty]
     if mines not in MINE_OPTIONS:
-        raise GameError("Invalid mine count.")
+        raise GameError("Invalid difficulty.")
     wallet = _get_locked_wallet(db, user_id)   # also serialises this user's requests
     active = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "mines",
                                          GameRound.status == "active").first())
@@ -249,46 +267,54 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
 
 
 # ---------------- Chicken Road ----------------
-# One difficulty. Every step is an independent 50% safe / 50% trap. The whole
-# path is drawn with the OS CSPRNG when the round starts and kept secret on the
-# server. Fair multiplier = 2^k; we pay 2^k x (1 - CHICKEN_EDGE), disclosed.
+# Three difficulties. Each lane is an independent safe/trap draw with the chance shown to the
+# player. The whole path is drawn with the OS CSPRNG when the round starts and kept secret on
+# the server. Payouts are fixed per step (STEP_TABLE) and every step's average return is < 100%.
 
-CHICKEN_EDGE = Decimal("0.12")
-CHICKEN_MAX_STEPS = 10
-CHICKEN_SAFE_CHANCE = 45
+CHICKEN_MAX_STEPS = MAX_STEPS
+CHICKEN_SAFE = {"easy": 87, "medium": 78, "hardcore": 50}      # % chance each lane is safe
 
 
-def chicken_multiplier(step: int) -> Decimal:
+def chicken_multiplier(step: int, difficulty: str = "easy") -> Decimal:
     if step <= 0:
         return Decimal("1")
-    return (Decimal(2) ** step * (1 - CHICKEN_EDGE)).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+    return STEP_TABLE[difficulty][step - 1]
 
 
 def chicken_rules() -> dict:
-    return {"safe_chance": CHICKEN_SAFE_CHANCE, "house_edge_percent": str(CHICKEN_EDGE * 100),
-            "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
-            "max_steps": CHICKEN_MAX_STEPS,
-            "steps": [{"step": k, "multiplier": str(chicken_multiplier(k)),
-                       "survive_chance": str((Decimal(CHICKEN_SAFE_CHANCE) ** k / Decimal(100) ** (k - 1)).quantize(Decimal("0.01")))}
-                      for k in range(1, CHICKEN_MAX_STEPS + 1)]}
+    out = []
+    for d in DIFFICULTIES:
+        p = Decimal(CHICKEN_SAFE[d]) / 100
+        steps = []
+        for k in range(1, CHICKEN_MAX_STEPS + 1):
+            m = STEP_TABLE[d][k - 1]
+            steps.append({"step": k, "multiplier": str(m),
+                          "survive_chance": str((p ** k * 100).quantize(Decimal("0.01"))),
+                          "return_percent": str((p ** k * m * 100).quantize(Decimal("0.1")))})
+        out.append({"id": d, "label": DIFF_LABEL[d], "safe_chance": CHICKEN_SAFE[d], "steps": steps})
+    return {"min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
+            "max_steps": CHICKEN_MAX_STEPS, "difficulties": out}
 
 
 def _chicken_public(r: GameRound) -> dict:
     p = r.params
     step = p["step"]
+    d = p.get("difficulty", "medium")
     out = {"round_id": str(r.id), "game": "chicken", "status": r.status, "bet": str(r.bet_amount),
-           "step": step, "max_steps": CHICKEN_MAX_STEPS, "multiplier": str(r.multiplier),
+           "difficulty": d, "step": step, "max_steps": CHICKEN_MAX_STEPS, "multiplier": str(r.multiplier),
            "payout": str(r.payout_amount),
            "potential_payout": str(_q2(min(r.bet_amount * r.multiplier, MAX_PAYOUT)))}
     if r.status == "active" and step < CHICKEN_MAX_STEPS:
-        out["next_multiplier"] = str(chicken_multiplier(step + 1))
+        out["next_multiplier"] = str(chicken_multiplier(step + 1, d))
     if r.status == "lost":
         out["lost_at"] = step + 1
     return out
 
 
-def chicken_start(db: Session, user_id, bet) -> dict:
+def chicken_start(db: Session, user_id, bet, difficulty="easy") -> dict:
     bet = _check_bet(bet)
+    if difficulty not in CHICKEN_SAFE:
+        raise GameError("Invalid difficulty.")
     wallet = _get_locked_wallet(db, user_id)
     active = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "chicken",
                                          GameRound.status == "active").first())
@@ -298,9 +324,9 @@ def chicken_start(db: Session, user_id, bet) -> dict:
     if wallet.available_balance < bet:
         db.rollback()
         raise GameError("Not enough balance.")
-    path = [secrets.randbelow(100) < CHICKEN_SAFE_CHANCE for _ in range(CHICKEN_MAX_STEPS)]   # True = safe
+    path = [secrets.randbelow(100) < CHICKEN_SAFE[difficulty] for _ in range(CHICKEN_MAX_STEPS)]   # True = safe
     rnd = GameRound(id=uuid.uuid4(), user_id=user_id, game="chicken", bet_amount=bet, status="active",
-                    params={"safe": path, "step": 0}, multiplier=Decimal("1"))
+                    params={"safe": path, "step": 0, "difficulty": difficulty}, multiplier=Decimal("1"))
     db.add(rnd)
     wallet.available_balance -= bet
     db.flush()
@@ -320,7 +346,7 @@ def chicken_step(db: Session, user_id, round_id) -> dict:
     if p["safe"][idx]:
         p["step"] = idx + 1
         r.params = p
-        r.multiplier = chicken_multiplier(p["step"])
+        r.multiplier = chicken_multiplier(p["step"], p.get("difficulty", "medium"))
         if p["step"] >= CHICKEN_MAX_STEPS or r.bet_amount * r.multiplier >= MAX_PAYOUT:
             _settle_payout(db, r, "cashed_out")
     else:
@@ -347,186 +373,6 @@ def chicken_active(db: Session, user_id):
     r = db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "chicken",
                                    GameRound.status == "active").first()
     return _chicken_public(r) if r else None
-
-
-# ---------------- Nova Flight (crash) ----------------
-# The server draws the crash point with the OS CSPRNG BEFORE takeoff and keeps it
-# secret. The multiplier is a pure function of elapsed time: m(t) = e^(g*t).
-# P(flight reaches x) = (1 - FLIGHT_EDGE) / x, so every cash-out target has the same
-# disclosed house edge. Cash-outs are judged only by the server clock.
-
-import math
-import time
-
-import hashlib
-import hmac
-
-FLIGHT_EDGE_PCT = 3                       # 3% house edge: P(flight reaches x) = 97% / x
-FLIGHT_EDGE = Decimal(FLIGHT_EDGE_PCT) / 100
-FLIGHT_GROWTH = 0.10          # per second:  2x ~ 6.9s, 5x ~ 16s, 10x ~ 23s
-FLIGHT_TAKEOFF_DELAY = 1.5    # seconds between bet and takeoff
-FLIGHT_MAX_CRASH = Decimal("1000")
-FLIGHT_MIN_TARGET = Decimal("1.01")
-
-
-def flight_crash_from_seed(seed: str, round_id: str) -> Decimal:
-    """Provably fair: crash = f(HMAC_SHA256(server_seed, round_id)). Integer maths only, so
-    players can recompute it exactly. The SHA-256 of the seed is shown BEFORE the flight."""
-    h = hmac.new(seed.encode(), str(round_id).encode(), hashlib.sha256).hexdigest()
-    r = int(h[:13], 16)                                    # 52 random bits
-    c100 = (100 - FLIGHT_EDGE_PCT) * (1 << 52) // ((1 << 52) - r)
-    c100 = max(100, min(int(FLIGHT_MAX_CRASH * 100), c100))
-    return Decimal(c100) / 100
-
-
-def _flight_mult_at(t: float) -> Decimal:
-    if t <= 0:
-        return Decimal("1.00")
-    return (Decimal(str(math.exp(FLIGHT_GROWTH * t))) * 100).to_integral_value(rounding=ROUND_DOWN) / 100
-
-
-def _flight_time_of(mult: Decimal) -> float:
-    return math.log(float(mult)) / FLIGHT_GROWTH if mult > 1 else 0.0
-
-
-def flight_rules() -> dict:
-    return {"house_edge_percent": str(FLIGHT_EDGE * 100), "edge_pct": FLIGHT_EDGE_PCT, "growth": FLIGHT_GROWTH,
-            "min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
-            "min_target": str(FLIGHT_MIN_TARGET), "max_multiplier": str(FLIGHT_MAX_CRASH),
-            "takeoff_delay": FLIGHT_TAKEOFF_DELAY,
-            "samples": [{"x": str(x), "chance": str((((1 - FLIGHT_EDGE) / Decimal(x)) * 100).quantize(Decimal("0.01")))}
-                        for x in (1.5, 2, 3, 5, 10, 50, 100)]}
-
-
-def _flight_resolve(db, r: GameRound) -> bool:
-    """Settle an active round if its time has come. Caller holds the row lock. True if changed."""
-    if r.status != "active":
-        return False
-    p = r.params
-    crash = Decimal(p["crash"])
-    now = time.time()
-    t = now - p["t0"]
-    stop = None
-    if p.get("target"):
-        stop = Decimal(p["target"])
-    cap = MAX_PAYOUT / r.bet_amount
-    if stop is None or cap < stop:
-        stop = cap
-    if stop < crash and stop >= Decimal("1.00"):
-        if t >= _flight_time_of(stop):
-            r.multiplier = _q2(stop) if stop >= 1 else Decimal("1.00")
-            _settle_payout(db, r, "cashed_out")
-            return True
-    elif t >= _flight_time_of(crash):
-        r.status, r.multiplier, r.payout_amount, r.settled_at = "lost", Decimal("0"), Decimal("0"), _now()
-        return True
-    return False
-
-
-def _flight_public(r: GameRound) -> dict:
-    p = r.params
-    out = {"round_id": str(r.id), "game": "flight", "status": r.status, "bet": str(r.bet_amount),
-           "t0_ms": int(p["t0"] * 1000), "server_now_ms": int(time.time() * 1000),
-           "growth": FLIGHT_GROWTH, "target": p.get("target"),
-           "multiplier": str(r.multiplier), "payout": str(r.payout_amount),
-           "seed_hash": p.get("seed_hash")}
-    if r.status != "active":
-        out["crash"] = p["crash"]          # revealed only after the round ends
-        out["server_seed"] = p.get("seed")
-    return out
-
-
-def flight_start(db: Session, user_id, bet, target=None) -> dict:
-    bet = _check_bet(bet)
-    tgt = None
-    if target not in (None, "", 0):
-        try:
-            tgt = Decimal(str(target))
-        except Exception:
-            raise GameError("Invalid auto cash-out value.")
-        if tgt < FLIGHT_MIN_TARGET or tgt > FLIGHT_MAX_CRASH:
-            raise GameError(f"Auto cash-out must be between {FLIGHT_MIN_TARGET} and {FLIGHT_MAX_CRASH}.")
-        tgt = _q2(tgt)
-    wallet = _get_locked_wallet(db, user_id)
-    active = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "flight",
-                                         GameRound.status == "active").with_for_update().first())
-    if active:
-        if _flight_resolve(db, active):
-            db.flush()
-        else:
-            db.rollback()
-            raise GameError("You already have a flight in the air.")
-    if wallet.available_balance < bet:
-        db.rollback()
-        raise GameError("Not enough balance.")
-    rid = uuid.uuid4()
-    seed = secrets.token_hex(32)
-    rnd = GameRound(id=rid, user_id=user_id, game="flight", bet_amount=bet, status="active",
-                    params={"crash": str(flight_crash_from_seed(seed, str(rid))), "seed": seed,
-                            "seed_hash": hashlib.sha256(seed.encode()).hexdigest(),
-                            "t0": time.time() + FLIGHT_TAKEOFF_DELAY,
-                            "target": str(tgt) if tgt else None},
-                    multiplier=Decimal("1"))
-    db.add(rnd)
-    wallet.available_balance -= bet
-    db.flush()
-    _write_ledger_row(db, wallet, "house_bet", -bet, f"round:{rnd.id}:bet", "house_round", rnd.id, "Nova Flight bet")
-    db.commit()
-    return _flight_public(rnd)
-
-
-def flight_state(db: Session, user_id, round_id) -> dict:
-    r = _load_round_locked(db, user_id, round_id, "flight")
-    _flight_resolve(db, r)
-    out = _flight_public(r)
-    db.commit()
-    return out
-
-
-def flight_cashout(db: Session, user_id, round_id) -> dict:
-    r = _load_round_locked(db, user_id, round_id, "flight")
-    if r.status != "active":
-        out = _flight_public(r); db.rollback(); return out
-    if _flight_resolve(db, r):               # crashed (or auto cash-out hit) before this tap arrived
-        out = _flight_public(r); db.commit(); return out
-    t = time.time() - r.params["t0"]
-    if t < 0:
-        db.rollback()
-        raise GameError("Wait for takeoff.")
-    m = _flight_mult_at(t)
-    if m < Decimal("1.01"):
-        db.rollback()
-        raise GameError("Too early to cash out.")
-    r.multiplier = m
-    _settle_payout(db, r, "cashed_out")
-    out = _flight_public(r)
-    db.commit()
-    return out
-
-
-def flight_active(db: Session, user_id):
-    r = (db.query(GameRound).filter(GameRound.user_id == user_id, GameRound.game == "flight",
-                                    GameRound.status == "active").with_for_update().first())
-    if not r:
-        db.rollback()
-        return None
-    _flight_resolve(db, r)
-    out = _flight_public(r)
-    db.commit()
-    return out
-
-
-def flight_recent(db: Session, limit=24) -> list:
-    rows = (db.query(GameRound).filter(GameRound.game == "flight", GameRound.status != "active")
-            .order_by(GameRound.settled_at.desc()).limit(limit).all())
-    out = []
-    for r in rows:
-        c = r.params.get("crash")
-        if c and r.status == "lost":
-            out.append(c)                     # flew away at this multiplier
-        elif c:
-            out.append(c)                     # cashed out: still show where it would have flown away
-    return out
 
 
 # ---------------- History ----------------

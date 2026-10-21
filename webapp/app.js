@@ -885,36 +885,38 @@ async function renderMines() {
 
 function drawMinesSetup(rules) {
   const r = rules.mines;
-  let mines = 10;
+  let diff = window._mDiff || "easy";
   screenEl.innerHTML = `
     <div class="card">
       <h2>💣 Mines</h2>
       <p class="center-note" style="text-align:left">
-        5×5 board, hidden mines. Each safe tile raises your payout multiplier. Hit a mine and you lose your bet.
-        Cash out any time after your first pick. Mines are placed randomly and the odds are the same for everyone.
-        Fixed payouts, auto cash-out after ${r.max_picks} safe picks. Bet ${r.min_bet}–${r.max_bet} ETB. Max payout per round: ${r.max_payout} ETB.
+        5×5 board with hidden mines. Pick a difficulty: harder = more mines = bigger payouts. Each safe tile raises your multiplier; hit a mine and you lose your bet.
+        Cash out any time after your first pick. Mines are placed randomly by the server and the odds are the same for everyone.
+        Auto cash-out after ${r.max_picks} safe picks. Bet ${r.min_bet}–${r.max_bet} ETB. Max payout per round: ${r.max_payout} ETB.
       </p>
-      <div class="field"><label>Bet (ETB)</label><input id="m-bet" type="number" inputmode="decimal" value="10" /></div>
-      <div class="field"><label>Mode</label>
-        <div class="stake-grid">${r.options.map((o) => `<button class="stake-btn" data-m="${o.mines}">${o.mines} 💣 · ${o.safe} safe</button>`).join("")}</div>
+      <div class="field"><label>Bet (ETB)</label><input id="m-bet" type="number" inputmode="decimal" value="${window._mBet || 10}" /></div>
+      <div class="field"><label>Difficulty</label>
+        <div class="stake-grid" style="grid-template-columns:repeat(3,1fr)">${r.options.map((o) => `<button class="stake-btn" data-d="${o.difficulty}">${o.label}<br><small>${o.mines} 💣</small></button>`).join("")}</div>
       </div>
-      <div id="m-table" class="friend-username" style="margin:8px 0"></div>
+      <div id="m-table" class="friend-username" style="margin:8px 0;display:block;line-height:1.55"></div>
       <div class="error-text" id="m-err"></div>
       <button class="btn" id="m-start">Start round</button>
       ${gameBack}
     </div>`;
   const showTable = () => {
-    const o = r.options.find((x) => x.mines === mines);
-    document.getElementById("m-table").innerHTML = "<b>Payouts</b> (chance to reach · average return)<br>" + o.table.map((t) => `${t.picks} safe → ×${t.multiplier} · ${t.win_chance}% · ${t.return_percent}%`).join("<br>");
-    screenEl.querySelectorAll("[data-m]").forEach((b) => { b.style.outline = Number(b.dataset.m) === mines ? "2px solid #4f7cff" : "none"; });
+    const o = r.options.find((x) => x.difficulty === diff);
+    document.getElementById("m-table").innerHTML = `<b>${o.label} · ${o.mines} mines, ${o.safe} safe</b> <span style="opacity:.7">(safe picks → payout · chance to get there · average return)</span><br>` +
+      o.table.map((t) => `${t.picks} → <b>×${Number(t.multiplier).toFixed(2)}</b> · ${t.win_chance}% · ${t.return_percent}%`).join("<br>");
+    screenEl.querySelectorAll("[data-d]").forEach((b) => { b.style.outline = b.dataset.d === diff ? "2px solid #35d07f" : "none"; });
   };
-  screenEl.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => { mines = Number(b.dataset.m); showTable(); }));
+  screenEl.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => { diff = b.dataset.d; window._mDiff = diff; showTable(); }));
   showTable();
   bindBack();
   document.getElementById("m-start").addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {
-      const rd = await apiPostJson("/webapp/games/mines/start", { bet: document.getElementById("m-bet").value.trim(), mines });
+      window._mBet = document.getElementById("m-bet").value.trim();
+      const rd = await apiPostJson("/webapp/games/mines/start", { bet: window._mBet, difficulty: diff });
       drawMines(rd, rules);
     } catch (e) { document.getElementById("m-err").textContent = e.message; ev.target.disabled = false; }
   });
@@ -931,7 +933,7 @@ function drawMines(rd, rules) {
     cells += `<button data-t="${i}" ${active && !rd.revealed.includes(i) ? "" : "disabled"} style="aspect-ratio:1;font-size:24px;border:0;border-radius:10px;background:${bg};color:#fff">${face}</button>`;
   }
   let msg = "";
-  if (active) msg = `Mines: ${rd.mines} · Bet ${rd.bet} ETB · Now ×${rd.multiplier} = ${rd.potential_payout} ETB` + (rd.next_multiplier ? `<br>Next safe pick: ×${rd.next_multiplier}` : "");
+  if (active) msg = `${({ easy: "Easy", medium: "Medium", hardcore: "Hardcore" })[rd.difficulty] || ""} · ${rd.mines} mines · Bet ${rd.bet} ETB · Now ×${rd.multiplier} = ${rd.potential_payout} ETB` + (rd.next_multiplier ? `<br>Next safe pick: ×${rd.next_multiplier}` : "");
   else if (rd.status === "lost") msg = `💥 Mine! You lost ${rd.bet} ETB.`;
   else msg = `✅ Cashed out ${rd.payout} ETB (×${rd.multiplier})`;
   screenEl.innerHTML = `
@@ -1294,7 +1296,7 @@ function crSceneSVG(rules) {
       <g id="cr-coin-${i}" transform="translate(${x + 45},130)">
         <circle r="35" fill="rgba(0,0,0,.28)" cy="4"/>
         <circle id="cr-coinc-${i}" r="32" fill="url(#crBlue)" stroke="#c9d0ff" stroke-width="4"/>
-        <text id="cr-coint-${i}" y="6" text-anchor="middle" font-size="16" font-weight="900" fill="#fff">${Number(rules.steps[i - 1].multiplier).toFixed(2)}x</text></g>`;
+        <text id="cr-coint-${i}" y="6" text-anchor="middle" font-size="16" font-weight="900" fill="#fff">${crM(rules.steps[i - 1].multiplier)}</text></g>`;
   }
   let bricks = "";
   for (let r = 0; r < 4; r++) for (let c = -2; c < (N + 4) * 2; c++) {
@@ -1347,7 +1349,7 @@ function crPaint(d, rules) {
       const next = i === d.step + 1 && d.status !== "lost" && d.status !== "cashed_out";
       c.setAttribute("fill", next ? "url(#crGreen)" : (i === CR.N ? "url(#crGold)" : "url(#crBlue)"));
       c.setAttribute("stroke", next ? "#b9ffc8" : "#c9d0ff");
-      t.textContent = Number(rules.steps[i - 1].multiplier).toFixed(2) + "x"; t.setAttribute("font-size", "16"); t.setAttribute("y", "6");
+      t.textContent = crM(rules.steps[i - 1].multiplier); t.setAttribute("font-size", "16"); t.setAttribute("y", "6");
     }
   }
 }
@@ -1406,7 +1408,12 @@ async function renderChicken() {
   } catch (e) { tg.showAlert(e.message); renderPlayChooseGame(); }
 }
 
-function crScreen(rd, rules) {
+function crM(m) { m = Number(m); return (m >= 100 ? String(Math.round(m)) : m.toFixed(2)) + "x"; }
+function crEff(r, diff) { return { ...r, ...(r.difficulties.find((x) => x.id === diff) || r.difficulties[0]) }; }
+
+function crScreen(rd, baseRules) {
+  const diff = (rd && rd.difficulty) || window._crDiff || "easy";
+  const rules = crEff(baseRules, diff);
   const state = rd || { step: 0, status: "idle", bet: "0", multiplier: "1", potential_payout: "0", next_multiplier: rules.steps[0].multiplier };
   screenEl.innerHTML = `
     <div class="card" style="padding:8px">
@@ -1419,11 +1426,9 @@ function crScreen(rd, rules) {
       <div id="cr-controls"></div>
     </div>
     <div class="card"><div class="center-note" style="text-align:left">
-      <b>How it works</b> — one difficulty. Every lane is an independent <b>${rules.safe_chance}% safe / ${100 - rules.safe_chance}% car</b>,
-      decided by the server's secure random generator before you start and never adjusted for any player.
-      Chance to cross <i>k</i> lanes = ${rules.safe_chance}%<sup><i>k</i></sup>. Payout = 2<sup><i>k</i></sup> × ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} Expected return to the player at <i>k</i> lanes = ${(1 - Number(rules.house_edge_percent) / 100).toFixed(2)} × ${(2 * rules.safe_chance / 100).toFixed(2)}<sup><i>k</i></sup> (about ${(100 * (1 - Number(rules.house_edge_percent) / 100) * (2 * rules.safe_chance / 100)).toFixed(0)}% on lane 1, less each further lane).
-      Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
-      <div style="margin-top:6px">${rules.steps.map((t) => `${t.step}: ×${Number(t.multiplier).toFixed(2)} (${t.survive_chance}%)`).join(" · ")}</div>
+      <b>How it works</b> — pick a difficulty. Every lane is an independent draw by the server's secure random generator (decided before you start, never adjusted for any player).
+      <b>${rules.label}: ${rules.safe_chance}% safe / ${100 - rules.safe_chance}% car</b> per lane. Payouts are fixed per step. Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
+      <div style="margin-top:8px"><b>Step → payout · chance to get there · average return</b><br>${rules.steps.map((t) => `${t.step} → ×${Number(t.multiplier).toFixed(2)} · ${t.survive_chance}% · ${t.return_percent}%`).join("<br>")}</div>
     </div></div>
     <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
   bindBack();
@@ -1444,17 +1449,19 @@ function crScreen(rd, rules) {
       document.getElementById("cr-go").addEventListener("click", doStep);
       document.getElementById("cr-cash").addEventListener("click", doCash);
     } else if (d.status === "idle") {
-      info.textContent = "Pick your bet, press GO, then keep crossing lanes. Every lane is risky — ${rules.safe_chance}% safe.";
+      info.textContent = `Pick a difficulty and your bet, press GO, then keep crossing lanes. ${rules.label}: every lane is ${rules.safe_chance}% safe.`;
       ctr.innerHTML = `<div class="field" style="margin-bottom:6px"><label>Bet (ETB ${rules.min_bet}–${rules.max_bet})</label><input id="cr-bet" type="number" inputmode="decimal" value="${window._crBet || 10}" /></div>
+        <div class="stake-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">${baseRules.difficulties.map((x) => `<button class="stake-btn" data-diff="${x.id}" style="${x.id === diff ? "outline:2px solid #35d07f" : ""}">${x.label}<br><small>${x.safe_chance}% safe</small></button>`).join("")}</div>
         <div class="stake-grid" style="margin-bottom:6px">${["5", "10", "50", "100", "500"].map((x) => `<button class="stake-btn" data-q="${x}">${x}</button>`).join("")}</div>
         ${bar(`<button class="btn" id="cr-start" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`)}`;
       ctr.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { document.getElementById("cr-bet").value = b.dataset.q; }));
+      ctr.querySelectorAll("[data-diff]").forEach((b) => b.addEventListener("click", () => { window._crBet = document.getElementById("cr-bet").value; window._crDiff = b.dataset.diff; crScreen(null, baseRules); }));
       document.getElementById("cr-start").addEventListener("click", doStart);
     } else {
       const lost = d.status === "lost";
       info.innerHTML = lost ? `🚗💥 Hit by a car! You lost ${d.bet} ETB.` : `✅ Cashed out <b>${d.payout} ETB</b> (×${Number(d.multiplier).toFixed(2)})`;
       ctr.innerHTML = bar(`<button class="btn" id="cr-again" style="flex:1;margin:0;background:#2fc057;font-weight:900">PLAY AGAIN</button>`);
-      document.getElementById("cr-again").addEventListener("click", () => crScreen(null, rules));
+      document.getElementById("cr-again").addEventListener("click", () => crScreen(null, baseRules));
       refreshBal();
     }
   };
@@ -1462,7 +1469,7 @@ function crScreen(rd, rules) {
     if (busy) return; busy = true; err.textContent = ""; CRSound.unlock();
     try {
       window._crBet = document.getElementById("cr-bet").value.trim();
-      const d = await apiPostJson("/webapp/games/chicken/start", { bet: window._crBet });
+      const d = await apiPostJson("/webapp/games/chicken/start", { bet: window._crBet, difficulty: diff });
       CRSound.start(); crId = d.round_id; document.getElementById("cr-carl").innerHTML = ""; crPaint(d, rules); crPlace(0, false); setUI(d); refreshBal();
     } catch (e) { err.textContent = e.message; }
     busy = false;

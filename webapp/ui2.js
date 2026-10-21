@@ -125,7 +125,7 @@ renderHome = async function () {
     <div class="sec-title">Play now</div>
     <div class="game-grid">
       ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross the road, cash out")}
-      ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, 15 safe")}
+      ${gameCard("mines", "g-mines", "CASINO", "Mines", "3 difficulties · 25 tiles")}
       ${gameCard("flight", "g-flight", "CASINO", "Nova Flight", "3D crash game · cash out in time")}
       ${gameCard("tictactoe", "g-ttt", "1 vs 1", "Tic-Tac-Toe", "Challenge a friend")}
       ${gameCard("rps", "g-rps", "1 vs 1", "Rock Paper Scissors", "Quick duel")}
@@ -176,8 +176,8 @@ renderPlayChooseGame = async function () {
     </div>
     <div class="sec-title">🎰 Casino · solo vs the house</div>
     <div class="game-grid">
-      ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "Cross lanes, cash out any time")}
-      ${gameCard("mines", "g-mines", "CASINO", "Mines", "10 mines, cash out any time")}
+      ${gameCard("chicken", "g-chicken", "CASINO", "Chicken Road", "3 difficulties · cross & cash out")}
+      ${gameCard("mines", "g-mines", "CASINO", "Mines", "3 difficulties · cash out any time")}
       ${gameCard("flight", "g-flight", "CASINO", "Nova Flight", "3D crash game · cash out in time")}
     </div>
     <p class="center-note" style="text-align:center;margin-top:16px">Casino outcomes are decided by the server, never by the app.</p>`;

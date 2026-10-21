@@ -12,7 +12,8 @@ router = APIRouter(prefix="/webapp/games")
 
 class MinesStart(BaseModel):
     bet: str
-    mines: int
+    mines: int | None = None
+    difficulty: str | None = None
 
 class MinesReveal(BaseModel):
     round_id: str
@@ -56,7 +57,7 @@ def mines_active(response: Response, db: Session = Depends(get_db), x_telegram_i
 @router.post("/mines/start")
 def mines_start(body: MinesStart, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
     user = _webapp_user(db, x_telegram_init_data)
-    return _run(lambda: hg.mines_start(db, user.internal_id, body.bet, body.mines), db)
+    return _run(lambda: hg.mines_start(db, user.internal_id, body.bet, body.mines, body.difficulty), db)
 
 
 @router.post("/mines/reveal")
@@ -94,12 +95,13 @@ def chicken_active(response: Response, db: Session = Depends(get_db), x_telegram
 
 class ChickenStart(BaseModel):
     bet: str
+    difficulty: str = "easy"
 
 
 @router.post("/chicken/start")
 def chicken_start(body: ChickenStart, db: Session = Depends(get_db), x_telegram_init_data: str = Header(None)):
     user = _webapp_user(db, x_telegram_init_data)
-    return _run(lambda: hg.chicken_start(db, user.internal_id, body.bet), db)
+    return _run(lambda: hg.chicken_start(db, user.internal_id, body.bet, body.difficulty), db)
 
 
 @router.post("/chicken/step")
