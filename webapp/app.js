@@ -1078,6 +1078,34 @@ async function renderRps() {
   if (rs) rs.addEventListener("click", () => { window.location.hash = `#/rps/${lobby.mine}`; });
 }
 
+function rpsCards(s, reveal) {
+  const me = s.you_are === "opponent" ? "opponent" : "creator";
+  const mine = me === "creator" ? s.creator_move : s.opponent_move;
+  const theirs = me === "creator" ? s.opponent_move : s.creator_move;
+  const myName = (me === "creator" ? s.creator_name : s.opponent_name) || "You";
+  const thName = (me === "creator" ? s.opponent_name : s.creator_name) || "Opponent";
+  const card = (name, label, mv, locked, win) => {
+    let mid;
+    if (reveal) mid = mv ? `<div class="rps-mv rps-pop">${RPS_ICON[mv]}</div><div class="rps-st">${RPS_NAME[mv]}</div>` : `<div class="rps-st">no pick</div>`;
+    else if (locked) mid = `<div class="rps-mv">🔒</div><div class="rps-st" style="color:#34d17a">Locked in</div>`;
+    else mid = `<div class="rps-mv rps-think">🤔</div><div class="rps-st" style="color:#ffd23f">Choosing…</div>`;
+    return `<div class="rps-pl${win ? " rps-win" : ""}"><div class="rps-n">${label}</div><div class="rps-sub">${name}</div>${mid}</div>`;
+  };
+  const youWin = reveal && s.you_won === true, youLose = reveal && s.you_won === false;
+  return `<style>
+    .rps-vs{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin:14px 0}
+    .rps-vs b{color:#8b95ad}
+    .rps-pl{background:#0a0f0d;border:1px solid #243029;border-radius:14px;padding:12px 6px;text-align:center;min-height:130px}
+    .rps-win{border-color:#34d17a;box-shadow:0 0 16px #34d17a55}
+    .rps-n{font-weight:800;font-size:13px}.rps-sub{font-size:11px;color:#8b95ad;margin-bottom:6px;word-break:break-word}
+    .rps-mv{font-size:46px;line-height:1.2}.rps-st{font-size:12px;font-weight:700}
+    .rps-pop{animation:rpspop .5s cubic-bezier(.2,1.6,.4,1)}
+    .rps-think{animation:rpsthink 1s infinite}
+    @keyframes rpspop{from{transform:scale(.2) rotate(-25deg);opacity:0}to{transform:none;opacity:1}}
+    @keyframes rpsthink{50%{transform:translateY(-4px)}}
+  </style><div class="rps-vs">${card(myName, "YOU", mine, !!s.my_move, youWin)}<b>VS</b>${card(thName, "OPPONENT", theirs, s.opponent_locked, youLose)}</div>`;
+}
+
 async function renderRpsGame(gameId) {
   screenEl.innerHTML = `<div class="spinner"></div>`;
   let busy = false;
@@ -1096,27 +1124,23 @@ async function renderRpsGame(gameId) {
       }
     } else if (s.status === "picking") {
       if (!s.my_move) {
-        body = `<p class="center-note">Choose your move. Your opponent won't see it until both of you have chosen. ⏱ ${secs(s.pick_deadline)}s left</p>
+        body = `${rpsCards(s, false)}<p class="center-note">Choose your move — ${s.opponent_locked ? "your opponent has already locked in!" : "your opponent can't see it."} ⏱ ${secs(s.pick_deadline)}s left</p>
           <div class="btn-row">${["rock", "paper", "scissors"].map((m) => `<button class="btn" data-m="${m}" style="font-size:28px">${RPS_ICON[m]}<br><span style="font-size:12px">${RPS_NAME[m]}</span></button>`).join("")}</div>`;
       } else {
-        body = `<p class="center-note">🔒 You locked ${RPS_ICON[s.my_move]} ${RPS_NAME[s.my_move]}.<br>${s.opponent_locked ? "Revealing…" : "Waiting for your opponent… ⏱ " + secs(s.pick_deadline) + "s"}</p>`;
+        body = `${rpsCards(s, false)}<p class="center-note">You locked ${RPS_ICON[s.my_move]} ${RPS_NAME[s.my_move]}. ${s.opponent_locked ? "Revealing…" : "Waiting for your opponent… ⏱ " + secs(s.pick_deadline) + "s"}</p>`;
       }
     } else if (s.status === "completed" || s.status === "draw") {
-      const mine = s.you_are === "creator" ? s.creator_move : s.opponent_move;
-      const theirs = s.you_are === "creator" ? s.opponent_move : s.creator_move;
-      const mi = mine ? `${RPS_ICON[mine]} ${RPS_NAME[mine]}` : "— no pick";
-      const ti = theirs ? `${RPS_ICON[theirs]} ${RPS_NAME[theirs]}` : "— no pick";
       let res;
       if (s.status === "draw") res = s.reason === "no_picks" ? "⏱ Nobody picked. Stakes refunded." : "🤝 Draw! Your stake is refunded.";
       else if (s.you_won) res = `🎉 You won ${s.payout} ETB!${s.reason === "forfeit" ? " (opponent didn't pick in time)" : ""}`;
       else res = `❌ You lost ${s.stake} ETB.${s.reason === "forfeit" ? " (you didn't pick in time)" : ""}`;
-      body = `<div style="text-align:center;font-size:20px;margin:12px 0">You: ${mi}<br>Opponent: ${ti}</div>
+      body = `${rpsCards(s, true)}
         <p class="center-note" style="font-size:16px">${res}</p>
         ${s.opponent_id ? `<button class="btn" id="r-rematch">🔁 Rematch (${s.stake} ETB)</button>` : ""}
         <button class="btn secondary" id="r-again">Back</button>`;
       if (window.onRpsFinished && !window._rpsShown?.[s.game_id]) {
         (window._rpsShown = window._rpsShown || {})[s.game_id] = true;
-        setTimeout(() => window.onRpsFinished(s), 50);
+        setTimeout(() => window.onRpsFinished(s), 2200);
       }
     } else {
       body = `<p class="center-note">${s.status === "cancelled" ? "Challenge cancelled. Stake refunded." : "Challenge expired. Stake refunded."}</p>
@@ -1150,7 +1174,7 @@ async function renderRpsGame(gameId) {
       draw(s);
       if (["completed", "draw", "cancelled", "expired"].includes(s.status)) stopPolling();
     } catch (e) {}
-  }, 2000);
+  }, 1000);
 }
 
 

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live — Nova Bet Admin</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .container{max-width:1180px}
+  .kp{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .kp div{background:#1a2032;border:1px solid #2a3348;border-radius:12px;padding:12px 18px}
+  .kp b{display:block;font-size:26px}
+  .kp span{color:#8b95ad;font-size:12px;text-transform:uppercase;letter-spacing:.8px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#34d17a;margin-right:6px;animation:p 1.2s infinite}
+  @keyframes p{50%{opacity:.25}}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:22px}
+  .m{background:#1a2032;border:1px solid #2a3348;border-radius:14px;padding:14px}
+  .m.done{opacity:.7}
+  .m .t{display:flex;justify-content:space-between;font-size:12px;color:#8b95ad;margin-bottom:10px}
+  .vs{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;text-align:center}
+  .pl{background:#0f1420;border-radius:10px;padding:10px 6px;min-height:84px}
+  .pl.win{border:1px solid #34d17a;box-shadow:0 0 12px #34d17a44}
+  .pl .n{font-size:13px;font-weight:700;word-break:break-word}
+  .pl .mv{font-size:34px;line-height:1.3}
+  .pl .st{font-size:12px;color:#8b95ad}
+  .lock{color:#34d17a}.think{color:#ffd23f}
+  .res{margin-top:10px;font-size:13px;text-align:center}
+  .bd{display:grid;gap:2px;margin:10px auto 0;max-width:150px}
+  .bd i{background:#0f1420;border-radius:3px;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:800;font-size:13px}
+  h2{margin:18px 0 10px;font-size:16px}
+  .empty{color:#667089;font-size:13px;margin-bottom:18px}
+  .upd{color:#667089;font-size:12px;text-align:right;margin-bottom:6px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav">
+    <a href="overview.html">🏠 Overview</a>
+    <a href="live.html" class="active">🔴 Live</a>
+    <a href="dashboard.html">📊 Dashboard</a>
+    <a href="deposits.html">➕ Deposits</a>
+    <a href="withdrawals.html">💸 Withdrawals</a>
+    <a href="users.html">👤 Users</a>
+    <button class="secondary" style="margin-left:auto" onclick="logout()">Log out</button>
+  </div>
+  <h1><span class="dot"></span>Live matches</h1>
+  <div class="upd" id="upd">Loading…</div>
+  <div id="root"><div class="card">Loading…</div></div>
+</div>
+<script src="api.js"></script>
+<script>
+requireLogin();
+const ICON = { rock: "✊", paper: "✋", scissors: "✌️" };
+const esc = (s) => String(s == null ? "—" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ago = (iso) => { if (!iso) return ""; const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); return s < 60 ? s + "s ago" : Math.round(s / 60) + "m ago"; };
+
+function rpsCard(g) {
+  const live = g.status === "open" || g.status === "picking";
+  const fin = g.status === "completed" || g.status === "draw";
+  const side = (name, locked, mv, won) => {
+    let mid;
+    if (fin) mid = mv ? `<div class="mv">${ICON[mv]}</div><div class="st">${mv}</div>` : `<div class="st">no pick</div>`;
+    else if (g.status === "open") mid = `<div class="st">${name ? "" : "waiting…"}</div>`;
+    else mid = locked ? `<div class="mv">🔒</div><div class="st lock">locked in</div>` : `<div class="mv">🤔</div><div class="st think">choosing…</div>`;
+    return `<div class="pl ${won ? "win" : ""}"><div class="n">${esc(name || "waiting…")}</div>${mid}</div>`;
+  };
+  let res = "";
+  if (g.status === "open") res = "Waiting for an opponent";
+  else if (g.status === "picking") res = "Picks hidden until both lock in";
+  else if (g.status === "draw") res = g.reason === "no_picks" ? "Nobody picked — refunded" : "🤝 Draw — refunded";
+  else if (g.status === "completed") res = `🏆 ${esc(g.winner)} won ${g.payout} ETB${g.reason === "forfeit" ? " (forfeit)" : ""}`;
+  else res = esc(g.status);
+  return `<div class="m ${live ? "" : "done"}"><div class="t"><span>✊✋✌️ RPS · ${g.stake} ETB</span><span>${ago(g.since)}</span></div>
+    <div class="vs">${side(g.creator, g.creator_locked, g.creator_move, g.winner && g.winner === g.creator)}<b>VS</b>${side(g.opponent, g.opponent_locked, g.opponent_move, g.winner && g.winner === g.opponent)}</div>
+    <div class="res">${res}</div></div>`;
+}
+
+function boardHtml(m) {
+  const n = m.board.length === 64 ? 8 : 3;
+  const cells = m.board.split("").map((c) => `<i>${c === "_" ? "" : esc(c)}</i>`).join("");
+  return `<div class="bd" style="grid-template-columns:repeat(${n},1fr)">${cells}</div>`;
+}
+function matchCard(m) {
+  const name = m.game === "checkers" ? "♟️ Checkers" : "❌⭕ Tic-Tac-Toe";
+  const turnX = m.active && m.turn === "X", turnO = m.active && m.turn === "O";
+  const pl = (n, sym, turn, won) => `<div class="pl ${won ? "win" : ""}"><div class="n">${esc(n)}</div><div class="mv">${sym}</div><div class="st ${turn ? "think" : ""}">${turn ? "thinking…" : ""}</div></div>`;
+  let res = m.active ? "In progress" : m.status === "completed_draw" ? "🤝 Draw" : `🏆 ${esc(m.winner)} won ${m.payout} ETB${m.status === "completed_forfeit" ? " (forfeit)" : ""}`;
+  return `<div class="m ${m.active ? "" : "done"}"><div class="t"><span>${name} · ${m.stake} ETB</span><span>${ago(m.since)}</span></div>
+    <div class="vs">${pl(m.x, "X", turnX, m.winner && m.winner === m.x)}<b>VS</b>${pl(m.o, "O", turnO, m.winner && m.winner === m.o)}</div>
+    ${boardHtml(m)}<div class="res">${res}</div></div>`;
+}
+function roundCard(r) {
+  const g = r.game === "mines" ? `💣 Mines${r.mines ? " · " + r.mines + " mines" : ""}` : `🐔 Chicken Road${r.difficulty ? " · " + r.difficulty : ""}`;
+  const prog = r.game === "mines" ? r.picks + " safe picks" : "lane " + (r.step || 0);
+  return `<div class="m"><div class="t"><span>${g}</span><span>${ago(r.since)}</span></div>
+    <div class="pl"><div class="n">${esc(r.player)}</div><div class="st">bet ${r.bet} ETB · ${prog}</div></div></div>`;
+}
+const section = (title, arr, fn) => `<h2>${title}</h2>` + (arr.length ? `<div class="grid">${arr.map(fn).join("")}</div>` : `<div class="empty">Nothing right now.</div>`);
+
+async function load() {
+  try {
+    const d = await apiRequest("/admin/live");
+    const am = d.matches.filter((m) => m.active), dm = d.matches.filter((m) => !m.active);
+    const ar = d.rps.filter((g) => g.status === "open" || g.status === "picking"), dr = d.rps.filter((g) => !(g.status === "open" || g.status === "picking"));
+    document.getElementById("root").innerHTML =
+      `<div class="kp"><div><b>${d.counts.matches}</b><span>Board matches</span></div><div><b>${d.counts.rps}</b><span>RPS games</span></div><div><b>${d.counts.rounds}</b><span>Solo rounds</span></div></div>` +
+      section("✊✋✌️ Rock Paper Scissors — live", ar, rpsCard) +
+      section("❌⭕ Tic-Tac-Toe / Checkers — live", am, matchCard) +
+      section("🐔💣 Chicken Road / Mines — being played", d.rounds, roundCard) +
+      section("Recently finished (30 min)", [...dr.map((g) => ({ k: "r", g })), ...dm.map((m) => ({ k: "m", m }))], (x) => x.k === "r" ? rpsCard(x.g) : matchCard(x.m));
+    document.getElementById("upd").textContent = "Auto-refresh every 3s · updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById("upd").textContent = "Failed to load: " + e.message;
+  }
+}
+load(); setInterval(load, 3000);
+</script>
+</body>
+</html>
