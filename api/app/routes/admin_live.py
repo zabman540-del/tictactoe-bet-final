@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_auth import get_current_admin
 from app.core.database import get_db
-from app.models.models import Admin, GameRound, Match, RpsGame, User
+from app.models.models import Admin, DuelGame, GameRound, Match, RpsGame, User
 
 router = APIRouter()
 
@@ -50,6 +50,9 @@ def live(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin
         rps = (db.query(RpsGame).filter(RpsGame.status.in_(["open", "picking"]) |
                                         (RpsGame.settled_at >= recent_cut))
                .order_by(RpsGame.created_at.desc()).limit(60).all())
+        duels = (db.query(DuelGame).filter(DuelGame.status.in_(["open", "playing"]) |
+                                           (DuelGame.settled_at >= recent_cut))
+                 .order_by(DuelGame.created_at.desc()).limit(60).all())
         rounds = (db.query(GameRound).filter(GameRound.status == "active")
                   .order_by(GameRound.created_at.desc()).limit(40).all())
 
@@ -58,6 +61,8 @@ def live(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin
             ids += [m.player_x_id, m.player_o_id, m.winner_id]
         for g in rps:
             ids += [g.creator_id, g.opponent_id, g.winner_id]
+        for d in duels:
+            ids += [d.creator_id, d.opponent_id, d.winner_id]
         for r in rounds:
             ids.append(r.user_id)
         nm = _names(db, ids)
@@ -91,6 +96,33 @@ def live(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin
                 "deadline": _iso(g.pick_deadline), "since": _iso(g.settled_at or g.joined_at or g.created_at),
             })
 
+        out_duels = []
+        for d in duels:
+            st = d.state or {}
+            info = {}
+            if d.status in ("playing", "completed", "draw"):
+                if d.game == "chess":
+                    info = {"moves": st.get("chess", {}).get("full"), "turn": st.get("turn")}
+                elif d.game == "archery":
+                    info = {"totals": st.get("totals"), "arrows": len(st.get("arrows", [])), "turn": "c" if st.get("idx", 0) % 2 == 0 else "o"}
+                elif d.game == "race":
+                    res = st.get("results") or {}
+                    info = {"phase": st.get("phase"), "ready": st.get("ready"),
+                            "done": {k: bool(v) for k, v in res.items()},
+                            "times": ({k: (v or {}).get("time") for k, v in res.items()} if d.status != "playing" else None)}
+                elif d.game == "pool":
+                    grp = st.get("groups") or {}
+                    balls = st.get("balls") or []
+                    left = {"solid": sum(1 for i in range(1, 8) if balls and not balls[i][2]),
+                            "stripe": sum(1 for i in range(9, 16) if balls and not balls[i][2])}
+                    info = {"turn": st.get("turn"), "groups": grp, "left": left, "shots": st.get("shot_no")}
+            out_duels.append({
+                "id": str(d.id), "game": d.game, "stake": str(d.stake_amount), "status": d.status,
+                "creator": nm.get(d.creator_id), "opponent": nm.get(d.opponent_id),
+                "winner": nm.get(d.winner_id), "reason": d.result_reason, "payout": str(d.payout_amount or 0),
+                "info": info, "since": _iso(d.settled_at or d.joined_at or d.created_at),
+            })
+
         out_rounds = [{
             "id": str(r.id), "game": r.game, "player": nm.get(r.user_id), "bet": str(r.bet_amount),
             "step": (r.params or {}).get("step"), "difficulty": (r.params or {}).get("difficulty"),
@@ -104,8 +136,9 @@ def live(db: Session = Depends(get_db), admin: Admin = Depends(get_current_admin
                 "matches": sum(1 for m in out_matches if m["active"]),
                 "rps": sum(1 for g in out_rps if g["status"] in ("open", "picking")),
                 "rounds": len(out_rounds),
+                "duels": sum(1 for d in out_duels if d["status"] in ("open", "playing")),
             },
-            "matches": out_matches, "rps": out_rps, "rounds": out_rounds,
+            "matches": out_matches, "rps": out_rps, "rounds": out_rounds, "duels": out_duels,
         }
     except HTTPException:
         raise

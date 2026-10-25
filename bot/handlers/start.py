@@ -31,6 +31,9 @@ def _app_kb(settings, payload: str | None = None) -> InlineKeyboardMarkup:
     if payload and payload.startswith("rps_"):
         url += f"#/rps/{payload[4:]}"
         text = "⚔️ Open challenge"
+    elif payload and payload.startswith("duel_"):
+        url += f"#/duel/{payload[5:]}"
+        text = "⚔️ Open challenge"
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))]])
 
 

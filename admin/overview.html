@@ -60,14 +60,14 @@
 <script src="api.js"></script>
 <script>
 requireLogin();
-const COLORS = { ttt: "#4da3ff", rps: "#b980ff", chicken: "#ffb020", mines: "#34d17a", flight: "#ff3d4f" };
+const COLORS = { ttt: "#4da3ff", rps: "#b980ff", chicken: "#ffb020", mines: "#34d17a", flight: "#ff3d4f", chess: "#e8e8e8", archery: "#ff7a45", race: "#39d0d8", pool: "#2fa86a" };
 const ETB = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ETB";
 const sign = (v) => (Number(v) >= 0 ? "green" : "red");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = (iso) => { const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
 
 function chart(daily) {
-  const keys = ["ttt", "rps", "chicken", "mines", "flight"];
+  const keys = ["ttt", "rps", "chicken", "mines", "flight", "chess", "archery", "race", "pool"];
   const W = 640, H = 220, pad = 30, bw = (W - pad * 2) / daily.length;
   const tot = daily.map((d) => keys.reduce((a, k) => a + Number(d[k]), 0));
   const pos = Math.max(1, ...daily.map((d) => keys.reduce((a, k) => a + Math.max(0, Number(d[k])), 0)));
@@ -123,7 +123,7 @@ function render(o) {
 
     <div class="two">
       <div class="card"><h3>Earnings — last 14 days</h3>
-        <div class="legend">${[["ttt", "Tic-Tac-Toe"], ["rps", "Rock Paper Scissors"], ["chicken", "Chicken Road"], ["mines", "Mines"], ["flight", "Nova Flight"]].map(([k, n]) => `<span><i style="background:${COLORS[k]}"></i>${n}</span>`).join("")}</div>
+        <div class="legend">${[["ttt", "Tic-Tac-Toe"], ["rps", "Rock Paper Scissors"], ["chicken", "Chicken Road"], ["mines", "Mines"], ["flight", "Nova Flight"], ["chess", "Chess"], ["archery", "Archery"], ["race", "Car Race"], ["pool", "Pool"]].map(([k, n]) => `<span><i style="background:${COLORS[k]}"></i>${n}</span>`).join("")}</div>
         ${chart(o.daily)}
         <div class="s" style="color:#667089;font-size:12px;margin-top:6px">Tic-Tac-Toe and RPS = platform fees. Chicken Road, Mines and Nova Flight = bets minus payouts (can be negative on a lucky day).</div></div>
       <div class="card"><h3>Players</h3>

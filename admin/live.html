@@ -75,6 +75,28 @@ function rpsCard(g) {
     <div class="res">${res}</div></div>`;
 }
 
+const DICON = { chess: "♟️ Chess", archery: "🏹 Archery", race: "🏎️ Car Race", pool: "🎱 Pool" };
+function duelCard(d) {
+  const live = d.status === "open" || d.status === "playing", fin = d.status === "completed" || d.status === "draw", i = d.info || {};
+  const side = (k, name) => {
+    let mid = "";
+    if (d.game === "archery" && i.totals) mid = `<div class="mv">${i.totals[k]}</div><div class="st ${live && i.turn === k ? "think" : ""}">${live && i.turn === k ? "aiming…" : "points"}</div>`;
+    else if (d.game === "chess") mid = `<div class="mv">${k === "c" ? "⚪" : "⚫"}</div><div class="st ${live && i.turn === k ? "think" : ""}">${live && i.turn === k ? "thinking…" : ""}</div>`;
+    else if (d.game === "pool") mid = `<div class="mv">🎱</div><div class="st ${live && i.turn === k ? "think" : ""}">${i.groups && i.groups[k] ? i.groups[k] + "s · " + (i.left ? i.left[i.groups[k]] : "?") + " left" : "open"}${live && i.turn === k ? " · shooting" : ""}</div>`;
+    else if (d.game === "race") {
+      const t = i.times && i.times[k];
+      mid = t ? `<div class="mv">${t.toFixed(2)}s</div><div class="st">finish time</div>` :
+        i.phase === "ready" ? `<div class="mv">${i.ready && i.ready[k] ? "✅" : "⏳"}</div><div class="st">${i.ready && i.ready[k] ? "ready" : "not ready"}</div>` :
+        `<div class="mv">${i.done && i.done[k] ? "🏁" : "🏎️"}</div><div class="st ${i.done && i.done[k] ? "lock" : "think"}">${i.done && i.done[k] ? "finished" : "racing…"}</div>`;
+    }
+    return `<div class="pl ${d.winner && d.winner === name ? "win" : ""}"><div class="n">${esc(name || "waiting…")}</div>${mid}</div>`;
+  };
+  let res = d.status === "open" ? "Waiting for an opponent" : live ? (d.game === "chess" ? "Move " + (i.moves || 1) : d.game === "archery" ? "Arrow " + ((i.arrows || 0) + 1) : d.game === "pool" ? "Shot " + ((i.shots || 0) + 1) : "In progress")
+    : d.status === "draw" ? "🤝 Draw — refunded" : `🏆 ${esc(d.winner)} won ${d.payout} ETB (${esc(d.reason)})`;
+  return `<div class="m ${live ? "" : "done"}"><div class="t"><span>${DICON[d.game] || d.game} · ${d.stake} ETB</span><span>${ago(d.since)}</span></div>
+    <div class="vs">${side("c", d.creator)}<b>VS</b>${side("o", d.opponent)}</div><div class="res">${res}</div></div>`;
+}
+
 function boardHtml(m) {
   const n = m.board.length === 64 ? 8 : 3;
   const cells = m.board.split("").map((c) => `<i>${c === "_" ? "" : esc(c)}</i>`).join("");
@@ -103,11 +125,12 @@ async function load() {
     const am = d.matches.filter((m) => m.active), dm = d.matches.filter((m) => !m.active);
     const ar = d.rps.filter((g) => g.status === "open" || g.status === "picking"), dr = d.rps.filter((g) => !(g.status === "open" || g.status === "picking"));
     document.getElementById("root").innerHTML =
-      `<div class="kp"><div><b>${d.counts.matches}</b><span>Board matches</span></div><div><b>${d.counts.rps}</b><span>RPS games</span></div><div><b>${d.counts.rounds}</b><span>Solo rounds</span></div></div>` +
+      `<div class="kp"><div><b>${d.counts.matches}</b><span>Board matches</span></div><div><b>${d.counts.rps}</b><span>RPS games</span></div><div><b>${d.counts.duels}</b><span>Chess / Pool / Archery / Race</span></div><div><b>${d.counts.rounds}</b><span>Solo rounds</span></div></div>` +
       section("✊✋✌️ Rock Paper Scissors — live", ar, rpsCard) +
+      section("♟️🎱🏹🏎️ Chess / Pool / Archery / Car Race — live", d.duels.filter((x) => x.status === "open" || x.status === "playing"), duelCard) +
       section("❌⭕ Tic-Tac-Toe / Checkers — live", am, matchCard) +
       section("🐔💣 Chicken Road / Mines — being played", d.rounds, roundCard) +
-      section("Recently finished (30 min)", [...dr.map((g) => ({ k: "r", g })), ...dm.map((m) => ({ k: "m", m }))], (x) => x.k === "r" ? rpsCard(x.g) : matchCard(x.m));
+      section("Recently finished (30 min)", [...dr.map((g) => ({ k: "r", g })), ...dm.map((m) => ({ k: "m", m })), ...d.duels.filter((x) => x.status === "completed" || x.status === "draw").map((g) => ({ k: "d", g }))], (x) => x.k === "r" ? rpsCard(x.g) : x.k === "d" ? duelCard(x.g) : matchCard(x.m));
     document.getElementById("upd").textContent = "Auto-refresh every 3s · updated " + new Date().toLocaleTimeString();
   } catch (e) {
     document.getElementById("upd").textContent = "Failed to load: " + e.message;

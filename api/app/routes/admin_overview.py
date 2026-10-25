@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_auth import get_current_admin
 from app.core.database import get_db
 from app.models.models import (
-    Admin, Deposit, GameRound, Match, RpsGame, User, Wallet, Withdrawal,
+    Admin, Deposit, DuelGame, GameRound, Match, RpsGame, User, Wallet, Withdrawal,
 )
 
 router = APIRouter()
@@ -86,6 +86,16 @@ def _overview(db: Session):
         n, vol = q.one()
         return n, vol, f.scalar()
 
+    def duel(game, since=None):
+        q = db.query(func.count(DuelGame.id), func.coalesce(func.sum(DuelGame.stake_amount * 2), 0)).filter(
+            DuelGame.game == game, DuelGame.status.in_(RPS_DONE))
+        f = db.query(func.coalesce(func.sum(DuelGame.platform_fee), 0)).filter(
+            DuelGame.game == game, DuelGame.status.in_(RPS_FEE_STATUSES))
+        if since is not None:
+            q = q.filter(DuelGame.settled_at >= since); f = f.filter(DuelGame.settled_at >= since)
+        n, vol = q.one()
+        return n, vol, f.scalar()
+
     def house(game, since=None):
         q = db.query(func.count(GameRound.id), func.coalesce(func.sum(GameRound.bet_amount), 0),
                      func.coalesce(func.sum(GameRound.payout_amount), 0)).filter(
@@ -116,13 +126,18 @@ def _overview(db: Session):
         row("chicken", "Chicken Road", "🐔", house("chicken", day_ago), house("chicken")),
         row("mines", "Mines", "💣", house("mines", day_ago), house("mines")),
         row("flight", "Nova Flight", "✈️", house("flight", day_ago), house("flight")),
+        row("chess", "Chess", "♟️", duel("chess", day_ago), duel("chess")),
+        row("archery", "Archery", "🏹", duel("archery", day_ago), duel("archery")),
+        row("race", "Car Race", "🏎️", duel("race", day_ago), duel("race")),
+        row("pool", "Pool", "🎱", duel("pool", day_ago), duel("pool")),
     ]
     total_earned = sum(_d(g["earned"]) for g in games)
     earned_24h = sum(_d(g["earned_24h"]) for g in games)
 
     # ---------- last 14 days (profit per day, per game) ----------
     days = [(start14 + timedelta(days=i)).date() for i in range(14)]
-    series = {d.isoformat(): {"ttt": Decimal(0), "rps": Decimal(0), "chicken": Decimal(0), "mines": Decimal(0), "flight": Decimal(0)} for d in days}
+    series = {d.isoformat(): {"ttt": Decimal(0), "rps": Decimal(0), "chicken": Decimal(0), "mines": Decimal(0), "flight": Decimal(0),
+                                  "chess": Decimal(0), "archery": Decimal(0), "race": Decimal(0), "pool": Decimal(0)} for d in days}
 
     m_day = cast(Match.settled_at, Date)
     for d, v in db.query(m_day, func.sum(Match.platform_fee)).filter(
@@ -134,6 +149,11 @@ def _overview(db: Session):
             RpsGame.status.in_(RPS_FEE_STATUSES), RpsGame.settled_at >= start14).group_by(r_day).all():
         if d and d.isoformat() in series:
             series[d.isoformat()]["rps"] = _d(v)
+    d_day = cast(DuelGame.settled_at, Date)
+    for g, d, v in db.query(DuelGame.game, d_day, func.sum(DuelGame.platform_fee)).filter(
+            DuelGame.status.in_(RPS_FEE_STATUSES), DuelGame.settled_at >= start14).group_by(DuelGame.game, d_day).all():
+        if d and d.isoformat() in series and g in series[d.isoformat()]:
+            series[d.isoformat()][g] = _d(v)
     g_day = cast(GameRound.settled_at, Date)
     for g, d, bet, paid in db.query(GameRound.game, g_day, func.sum(GameRound.bet_amount),
                                     func.sum(GameRound.payout_amount)).filter(

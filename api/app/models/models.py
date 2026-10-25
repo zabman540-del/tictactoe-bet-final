@@ -325,3 +325,26 @@ class RpsGame(Base):
     joined_at = Column(TIMESTAMP(timezone=True))
     pick_deadline = Column(TIMESTAMP(timezone=True))
     settled_at = Column(TIMESTAMP(timezone=True))
+
+
+class DuelGame(Base):
+    """Generic 1v1 game room: chess, archery, race, pool (state lives in JSONB)."""
+    __tablename__ = "duel_games"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    game = Column(Text, nullable=False, index=True)
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"), nullable=False, index=True)
+    opponent_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"), index=True)
+    invited_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"))
+    stake_amount = Column(Numeric(14, 2), nullable=False)
+    platform_fee = Column(Numeric(14, 2), nullable=False, default=0)
+    status = Column(Text, nullable=False, default="open", index=True)
+    state = Column(JSONB, nullable=False, default=dict)
+    winner_id = Column(UUID(as_uuid=True), ForeignKey("users.internal_id"))
+    result_reason = Column(Text)
+    payout_amount = Column(Numeric(14, 2))
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    joined_at = Column(TIMESTAMP(timezone=True))
+    deadline = Column(TIMESTAMP(timezone=True))
+    settled_at = Column(TIMESTAMP(timezone=True))

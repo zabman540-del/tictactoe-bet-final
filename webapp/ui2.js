@@ -27,8 +27,8 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("button, .game-card, .chip, .fr-pick, .ttt-cell.selectable")) hap("light");
 }, true);
 
-const GAME_ICON = { tictactoe: "✕⭕", rps: "✊", mines: "💣", chicken: "🐔", dice: "🎲", checkers: "🔴" };
-const GAME_NAME = { tictactoe: "Tic-Tac-Toe", rps: "Rock Paper Scissors", mines: "Mines", chicken: "Chicken Road", dice: "Dice", checkers: "Checkers" };
+const GAME_ICON = { tictactoe: "✕⭕", rps: "✊", mines: "💣", chicken: "🐔", dice: "🎲", checkers: "🔴", chess: "♟️", archery: "🏹", race: "🏎️", pool: "🎱" };
+const GAME_NAME = { tictactoe: "Tic-Tac-Toe", rps: "Rock Paper Scissors", mines: "Mines", chicken: "Chicken Road", dice: "Dice", checkers: "Checkers", chess: "Chess", archery: "Archery", race: "Car Race", pool: "Pool" };
 const feeFor = (s) => (s <= 50 ? 1 : s <= 100 ? 2 : 3);
 const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const initial = (n) => esc((n || "?").trim().charAt(0).toUpperCase());
@@ -129,6 +129,10 @@ renderHome = async function () {
       ${gameCard("flight", "g-flight", "CASINO", "Nova Flight", "3D crash game · cash out in time")}
       ${gameCard("tictactoe", "g-ttt", "1 vs 1", "Tic-Tac-Toe", "Challenge a friend")}
       ${gameCard("rps", "g-rps", "1 vs 1", "Rock Paper Scissors", "Quick duel")}
+      ${gameCard("chess", "g-chess", "1 vs 1", "Chess", "Full chess · 90s per move")}
+      ${gameCard("pool", "g-pool", "1 vs 1", "Pool", "8-ball · aim & shoot")}
+      ${gameCard("archery", "g-archery", "1 vs 1", "Archery", "Time your shot · wind")}
+      ${gameCard("race", "g-race", "1 vs 1", "Car Race", "Dodge & race the clock")}
     </div>
     <div class="sec-title">Recent results</div>
     <div class="card" style="padding:6px 16px">
@@ -140,7 +144,7 @@ renderHome = async function () {
 };
 
 function gameCard(id, cls, tag, name, sub) {
-  const art = { chicken: "🐔", mines: "💣", tictactoe: "⭕", rps: "✌️", flight: "✈️" }[id];
+  const art = { chicken: "🐔", mines: "💣", tictactoe: "⭕", rps: "✌️", flight: "✈️", chess: "♟️", pool: "🎱", archery: "🏹", race: "🏎️" }[id];
   return `<button class="game-card ${cls}" data-game="${id}"><span class="tag">${tag}</span><span class="art">${art}</span><b>${name}</b><small>${sub}</small></button>`;
 }
 function bindGameCards() {
@@ -149,6 +153,7 @@ function bindGameCards() {
     if (g === "flight") { window.location.hash = "#/flight"; }
     else if (g === "chicken") renderChicken();
     else if (g === "mines") renderMines();
+    else if (["chess", "pool", "archery", "race"].includes(g)) renderDuelLobby(g);
     else renderFriendGame(g);
   }));
 }
@@ -173,6 +178,10 @@ renderPlayChooseGame = async function () {
     <div class="game-grid">
       ${gameCard("tictactoe", "g-ttt", "1 vs 1", "Tic-Tac-Toe", "Pick a friend, set the stake")}
       ${gameCard("rps", "g-rps", "1 vs 1", "Rock Paper Scissors", "Invite a friend or share a link")}
+      ${gameCard("chess", "g-chess", "1 vs 1", "Chess", "Full chess · 90s per move")}
+      ${gameCard("pool", "g-pool", "1 vs 1", "Pool", "8-ball · aim & shoot")}
+      ${gameCard("archery", "g-archery", "1 vs 1", "Archery", "Time your shot · wind")}
+      ${gameCard("race", "g-race", "1 vs 1", "Car Race", "Dodge & race the clock")}
     </div>
     <div class="sec-title">🎰 Casino · solo vs the house</div>
     <div class="game-grid">
@@ -185,7 +194,7 @@ renderPlayChooseGame = async function () {
   if (rs) rs.addEventListener("click", () => { window.location.hash = `#/rps/${lobby.mine}`; });
   screenEl.querySelectorAll("[data-game]").forEach((b) => b.addEventListener("click", () => {
     const g = b.dataset.game;
-    if (g === "flight") window.location.hash = "#/flight"; else if (g === "chicken") renderChicken(); else if (g === "mines") renderMines(); else renderFriendGame(g);
+    if (g === "flight") window.location.hash = "#/flight"; else if (g === "chicken") renderChicken(); else if (g === "mines") renderMines(); else if (["chess", "pool", "archery", "race"].includes(g)) renderDuelLobby(g); else renderFriendGame(g);
   }));
 };
 

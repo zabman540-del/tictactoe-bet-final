@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.redis_client import get_redis
 from app.core import telegram_notify
-from app.models.models import GameRound, Match, RpsGame, User, WalletTransaction
+from app.models.models import DuelGame, GameRound, Match, RpsGame, User, WalletTransaction
 from app.routes.webapp import _webapp_user
 from app.services import matchmaking_service
 
@@ -64,6 +64,17 @@ def _results(db: Session, uid, limit=60) -> list:
         else:
             res, net = "loss", -g.stake_amount
         out.append({"game": "rps", "result": res, "net": str(net), "stake": str(g.stake_amount), "at": g.settled_at})
+    ds_ = (db.query(DuelGame).filter((DuelGame.creator_id == uid) | (DuelGame.opponent_id == uid),
+                                     DuelGame.status.in_(["completed", "draw"]))
+           .order_by(DuelGame.settled_at.desc()).limit(limit).all())
+    for g in ds_:
+        if g.status == "draw":
+            res, net = "draw", Decimal(0)
+        elif g.winner_id == uid:
+            res, net = "win", (g.payout_amount or Decimal(0)) - g.stake_amount
+        else:
+            res, net = "loss", -g.stake_amount
+        out.append({"game": g.game, "result": res, "net": str(net), "stake": str(g.stake_amount), "at": g.settled_at})
     out = [o for o in out if o["at"]]
     out.sort(key=lambda o: o["at"], reverse=True)
     return out

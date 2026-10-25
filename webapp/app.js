@@ -92,6 +92,7 @@ async function router() {
     case "board": return renderBoard(param);
     case "rps": return param ? renderRpsGame(param) : renderRps();
     case "flight": return renderFlight();
+    case "duel": return renderDuelGame(param);
     default: return renderHome();
   }
 }
