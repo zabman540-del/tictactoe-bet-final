@@ -119,7 +119,7 @@ DUEL_VIEWS.race = {
         z, x: this.vis, yaw: Math.max(-0.22, Math.min(0.22, (this.lane - this.vis) * 0.3)),
         bounce: since < 0.5 ? 0.07 * Math.sin(since * 40) * (1 - since / 0.5) : 0,
         shake: since < 0.45 ? 1 - since / 0.45 : 0, time: performance.now() / 1000,
-        hits, speed: racing && t > 0 && t < g.base * 1000 + 300 ? 1 : 0.15, wheel: z * 0.25 / 0.345,
+        hits, speed: racing && t > 0 && t < g.base * 1000 + 300 ? 1 : 0.15, wheel: z * 0.25 / 0.43,
       });
     } else {
       this.paint2D(c, g, t, ms, pos, W, H);

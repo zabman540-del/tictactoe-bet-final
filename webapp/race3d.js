@@ -279,43 +279,63 @@ void main(){
   }
 
   function buildCar() {
-    const b = new MB();
-    // body (z from rear -2.25 to front +2.25, +z is forward)
-    const zs = [-2.26, -2.22, -2.0, -1.5, -0.7, 0, 0.7, 1.3, 1.8, 2.1, 2.24];
-    const hw = [0.74, 0.86, 0.93, 0.95, 0.96, 0.96, 0.95, 0.93, 0.88, 0.78, 0.62];
-    const yb = [0.30, 0.26, 0.22, 0.20, 0.20, 0.20, 0.20, 0.20, 0.21, 0.24, 0.30];
-    const yt = [0.70, 0.86, 0.90, 0.93, 0.94, 0.94, 0.92, 0.86, 0.75, 0.63, 0.50];
-    let rows = zs.map((z, i) => ringSE(hw[i], yb[i], yt[i], z, 4.4));
-    b.grid(capRows(rows), () => paintCol, () => MAT.paint, true);
-    // cabin / greenhouse
-    const cz = [-1.18, -0.95, -0.5, 0.1, 0.62, 0.98];
-    const chw = [0.60, 0.68, 0.72, 0.70, 0.62, 0.52];
-    const cyb = [0.90, 0.92, 0.94, 0.94, 0.90, 0.84];
-    const cyt = [0.98, 1.20, 1.31, 1.27, 1.08, 0.88];
-    rows = cz.map((z, i) => ringSE(chw[i], cyb[i], cyt[i], z, 3.0));
-    b.grid(capRows(rows), () => paintCol, (i, j, n) => (n[1] > 0.78 ? MAT.paint : MAT.glass), true);
-    // wheels
+    const b = new MB(), WHITE = [0.86, 0.865, 0.85], BLK = [0.025, 0.025, 0.028], CH = [0.8, 0.82, 0.86];
+    // ---- lower body (white), rear z=-2.48 -> front z=+2.48 ----
+    const zs = [-2.48, -2.44, -2.2, -1.0, 0, 1.0, 1.9, 2.3, 2.47];
+    const hw = [0.88, 0.96, 0.99, 1.0, 1.0, 1.0, 0.98, 0.95, 0.88];
+    const yb = [0.34, 0.30, 0.28, 0.28, 0.28, 0.28, 0.28, 0.30, 0.34];
+    const yt = [1.10, 1.14, 1.16, 1.17, 1.18, 1.21, 1.22, 1.13, 0.98];
+    let rows = zs.map((z, i) => ringSE(hw[i], yb[i], yt[i], z, 6.0, 32));
+    b.grid(capRows(rows), () => WHITE, () => MAT.paint, true);
+    // ---- cabin: roof, pillars, tailgate ----
+    const cz = [-2.43, -2.39, -2.2, -1.0, 0.1, 0.62, 1.18];
+    const chw = [0.82, 0.88, 0.91, 0.93, 0.93, 0.89, 0.82];
+    const cyb = [1.12, 1.12, 1.12, 1.12, 1.12, 1.12, 1.12];
+    const cyt = [1.58, 1.86, 1.95, 1.97, 1.96, 1.62, 1.22];
+    rows = cz.map((z, i) => ringSE(chw[i], cyb[i], cyt[i], z, 4.2, 28));
+    b.grid(capRows(rows), () => WHITE, (i, j, n) => (n[2] > 0.35 && n[1] < 0.8 ? MAT.glass : MAT.paint), true);
+    // ---- glass: side windows + rear window ----
+    const gl = [0.01, 0.014, 0.018];
+    [-1, 1].forEach((sx) => {
+      b.box(sx * 0.936, 1.57, -1.62, 0.014, 0.50, 0.78, gl, MAT.glass);   // rear quarter
+      b.box(sx * 0.942, 1.56, -0.62, 0.014, 0.54, 0.98, gl, MAT.glass);   // rear door
+      b.box(sx * 0.942, 1.56, 0.42, 0.014, 0.54, 0.84, gl, MAT.glass);    // front door
+      b.box(sx * 0.958, 1.29, -0.62, 0.012, 0.05, 2.9, CH, MAT.chrome);   // chrome window line
+      b.box(sx * 1.00, 0.86, -0.85, 0.07, 0.04, 0.16, CH, MAT.chrome);    // door handles
+      b.box(sx * 1.00, 0.86, 0.10, 0.07, 0.04, 0.16, CH, MAT.chrome);
+      b.box(sx * 1.05, 1.42, 0.92, 0.14, 0.17, 0.26, WHITE, MAT.paint);   // mirrors
+      b.box(sx * 1.05, 1.43, 1.06, 0.12, 0.13, 0.04, CH, MAT.chrome);
+      b.box(sx * 0.80, 2.0, -0.9, 0.05, 0.05, 2.7, [0.06, 0.06, 0.07], MAT.rubber);   // roof rails
+      b.box(sx * 0.97, 0.40, -0.1, 0.16, 0.10, 2.9, BLK, MAT.rubber);                    // side steps
+      b.box(sx * 1.04, 0.86, 1.42, 0.07, 0.16, 1.14, BLK, MAT.rubber);                   // wheel flares
+      b.box(sx * 1.04, 0.86, -1.42, 0.07, 0.16, 1.14, BLK, MAT.rubber);
+      // rear lamps (vertical LED units at the corners)
+      b.box(sx * 0.82, 1.00, -2.50, 0.13, 0.50, 0.03, [0.85, 0.03, 0.03], MAT.emit);
+      b.box(sx * 0.82, 1.32, -2.47, 0.10, 0.10, 0.03, [0.8, 0.03, 0.03], MAT.emit);
+      b.cyl(sx * 0.62, 0.27, -2.50, 0.05, 0.13, "z", 12, CH, MAT.chrome, true);       // exhaust tips
+      b.box(sx * 0.93, 0.58, -2.50, 0.14, 0.05, 0.03, [0.9, 0.3, 0.05], MAT.emit);   // bumper reflectors
+    });
+    b.box(0, 1.65, -2.425, 1.56, 0.56, 0.03, gl, MAT.glass);              // rear window
+    b.box(0, 1.14, -2.505, 0.64, 0.06, 0.02, CH, MAT.chrome);             // TOYOTA lettering strip
+    b.box(0, 1.00, -2.50, 0.95, 0.025, 0.03, [0.6, 0.02, 0.02], MAT.emit); // lamp connector
+    b.box(0, 0.80, -2.508, 0.58, 0.14, 0.02, [0.93, 0.93, 0.9], MAT.matte); // number plate
+    b.box(0, 0.80, -2.52, 0.52, 0.07, 0.01, [0.08, 0.12, 0.45], MAT.matte);
+    b.box(0, 0.45, -2.49, 1.92, 0.24, 0.10, BLK, MAT.rubber);              // rear bumper cladding
+    b.box(0, 1.96, -2.33, 1.62, 0.06, 0.26, WHITE, MAT.paint);             // roof spoiler
+    b.box(0, 1.73, -2.46, 0.05, 0.28, 0.02, BLK, MAT.rubber);              // wiper
+    // ---- front ----
+    b.box(0, 0.80, 2.47, 1.30, 0.50, 0.08, BLK, MAT.rubber);               // grille
+    for (let k = 0; k < 4; k++) b.box(0, 0.62 + k * 0.12, 2.51, 1.22, 0.03, 0.03, CH, MAT.chrome);
+    b.cyl(0, 0.80, 2.53, 0.09, 0.02, "z", 16, CH, MAT.chrome, true);       // badge
+    b.box(-0.74, 0.97, 2.43, 0.50, 0.12, 0.08, [1, 0.97, 0.88], MAT.emit); b.box(0.74, 0.97, 2.43, 0.50, 0.12, 0.08, [1, 0.97, 0.88], MAT.emit);
+    b.box(0, 0.38, 2.45, 1.70, 0.28, 0.1, BLK, MAT.rubber);                // front bumper lower
+    b.box(0, 0.12, 0, 1.4, 0.05, 4.3, [0.01, 0.01, 0.012], MAT.matte);     // under body
+    // ---- wheels (20" alloys) ----
     const W = new MB();
-    W.cyl(0, 0, 0, 0.345, 0.26, "x", 24, [0.025, 0.025, 0.028], MAT.rubber, true);
-    W.cyl(0.131, 0, 0, 0.225, 0.02, "x", 24, [0.75, 0.76, 0.8], MAT.chrome, true);
-    for (let k = 0; k < 5; k++) { const a = k / 5 * 6.2832; W.box(0.142, Math.sin(a) * 0.115, Math.cos(a) * 0.115, 0.012, 0.03, 0.2, [0.12, 0.12, 0.13], MAT.chrome); }
-    W.cyl(0.14, 0, 0, 0.05, 0.02, "x", 12, [0.5, 0.5, 0.52], MAT.chrome, true);
-    // details (rear is what the camera sees)
-    const d = b;
-    d.box(0, 0.70, -2.245, 1.25, 0.07, 0.03, [1, 0.05, 0.03], MAT.emit);               // tail-light bar
-    d.box(-0.62, 0.62, -2.245, 0.32, 0.10, 0.04, [1, 0.06, 0.04], MAT.emit); d.box(0.62, 0.62, -2.245, 0.32, 0.10, 0.04, [1, 0.06, 0.04], MAT.emit);
-    d.box(0, 0.50, -2.262, 0.52, 0.13, 0.03, [0.93, 0.93, 0.9], MAT.matte);              // number plate
-    d.box(0, 0.50, -2.28, 0.46, 0.07, 0.01, [0.1, 0.1, 0.45], MAT.matte);
-    d.box(0, 0.30, -2.12, 1.15, 0.10, 0.2, [0.03, 0.03, 0.035], MAT.matte);               // diffuser
-    d.cyl(-0.5, 0.31, -2.25, 0.05, 0.14, "z", 12, [0.8, 0.8, 0.85], MAT.chrome, true);
-    d.cyl(0.5, 0.31, -2.25, 0.05, 0.14, "z", 12, [0.8, 0.8, 0.85], MAT.chrome, true);
-    d.box(0, 1.02, -1.98, 1.62, 0.045, 0.34, [0.03, 0.035, 0.04], MAT.paint);            // spoiler wing
-    d.box(-0.55, 0.93, -1.98, 0.05, 0.13, 0.2, [0.03, 0.035, 0.04], MAT.paint); d.box(0.55, 0.93, -1.98, 0.05, 0.13, 0.2, [0.03, 0.035, 0.04], MAT.paint);
-    d.box(-0.82, 0.2, 0, 0.1, 0.12, 3.2, [0.02, 0.02, 0.025], MAT.matte); d.box(0.82, 0.2, 0, 0.1, 0.12, 3.2, [0.02, 0.02, 0.025], MAT.matte); // skirts
-    d.box(-0.95, 1.0, 0.55, 0.14, 0.1, 0.2, paintCol, MAT.paint); d.box(0.95, 1.0, 0.55, 0.14, 0.1, 0.2, paintCol, MAT.paint);                   // mirrors
-    d.box(0, 0.40, 2.21, 1.1, 0.16, 0.06, [0.02, 0.02, 0.025], MAT.matte);                // front intake
-    d.box(-0.66, 0.60, 2.1, 0.4, 0.08, 0.1, [1, 0.97, 0.85], MAT.emit); d.box(0.66, 0.60, 2.1, 0.4, 0.08, 0.1, [1, 0.97, 0.85], MAT.emit); // headlights
-    d.box(0, 0.16, 0, 1.3, 0.05, 3.6, [0.01, 0.01, 0.012], MAT.matte);                     // under body
+    W.cyl(0, 0, 0, 0.43, 0.29, "x", 28, [0.022, 0.022, 0.025], MAT.rubber, true);
+    W.cyl(0.146, 0, 0, 0.31, 0.02, "x", 28, [0.78, 0.8, 0.84], MAT.chrome, true);
+    for (let k = 0; k < 10; k++) { const a = k / 10 * 6.2832; W.box(0.16, Math.sin(a) * 0.18, Math.cos(a) * 0.18, 0.012, 0.05, 0.24, [0.55, 0.57, 0.6], MAT.chrome); }
+    W.cyl(0.16, 0, 0, 0.1, 0.02, "x", 16, [0.2, 0.2, 0.22], MAT.chrome, true);
     return { body: b, wheel: W };
   }
 
@@ -469,10 +489,10 @@ void main(){
       gl.viewport(0, 0, W, H);
       const cz = p.z * K, cx = (p.x - 1) * LANE;
       const sh = p.shake || 0, shx = (Math.random() - 0.5) * 0.25 * sh, shy = (Math.random() - 0.5) * 0.18 * sh;
-      const cam = [cx * 0.72 + shx, 2.35 + 0.05 * Math.sin(p.time * 9) * p.speed + shy, cz - 6.3];
-      const tgt = [cx * 0.4, 1.05, cz + 9];
+      const cam = [cx * 0.72 + shx, 3.05 + 0.05 * Math.sin(p.time * 9) * p.speed + shy, cz - 7.6];
+      const tgt = [cx * 0.4, 1.15, cz + 10];
       const fov = (56 + 7 * p.speed) * Math.PI / 180;
-      const proj = m4.persp(fov, W / H, 0.2, 1800), view = m4.look(cam, tgt, [0, 1, 0]), vp = m4.mul(proj, view);
+      const proj = m4.persp(fov, W / H, 0.2, 1800); proj[0] = -proj[0]; const view = m4.look(cam, tgt, [0, 1, 0]), vp = m4.mul(proj, view);
       gl.clearColor(0.8, 0.7, 0.55, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       // sky
       gl.disable(gl.DEPTH_TEST); gl.useProgram(PS);
@@ -519,15 +539,15 @@ void main(){
         // build: carM * T(wx,0.345,wz) * Rx(spin) * (flip about y)
         const spin = p.wheel || 0;
         const rot = m4.model(0, 0, 0, flip ? Math.PI : 0, spin * (flip ? -1 : 1), 0, 1);
-        const T = m4.model(wx, 0.345, wz, 0, 0, 0, 1);
+        const T = m4.model(wx, 0.43, wz, 0, 0, 0, 1);
         return m4.mul(carM(), m4.mul(T, rot));
       };
-      draw(M.wheel, wheelAt(-0.9, 1.38, true)); draw(M.wheel, wheelAt(0.9, 1.38, false));
-      draw(M.wheel, wheelAt(-0.9, -1.38, true)); draw(M.wheel, wheelAt(0.9, -1.38, false));
+      draw(M.wheel, wheelAt(-0.95, 1.42, true)); draw(M.wheel, wheelAt(0.95, 1.42, false));
+      draw(M.wheel, wheelAt(-0.95, -1.42, true)); draw(M.wheel, wheelAt(0.95, -1.42, false));
       // blob shadows (blended)
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
       const bs = (x, z, sx, sz) => { const m = m4.model(x, 0, z, 0, 0, 0, 1); m[0] = sx; m[10] = sz; draw(M.blob, m); };
-      bs(cx, cz, 1.25, 2.6);
+      bs(cx, cz, 1.45, 3.0);
       for (let i = 0; i < track.length; i++) {
         const [d, ln] = track[i], oz = d * K; if (oz < cz - 8 || oz > cz + 120) continue;
         if (p.hits && p.hits[i] != null) continue;
