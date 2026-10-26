@@ -1451,9 +1451,9 @@ function crScreen(rd, baseRules) {
       <div id="cr-controls"></div>
     </div>
     <div class="card"><div class="center-note" style="text-align:left">
-      <b>How it works</b> — pick a difficulty. Every lane is an independent draw by the server's secure random generator (decided before you start, never adjusted for any player).
-      <b>${rules.label}: ${rules.safe_chance}% safe / ${100 - rules.safe_chance}% car</b> per lane. Payouts are fixed per step. Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
-      <div style="margin-top:8px"><b>Step → payout · chance to get there · average return</b><br>${rules.steps.map((t) => `${t.step} → ×${Number(t.multiplier).toFixed(2)} · ${t.survive_chance}% · ${t.return_percent}%`).join("<br>")}</div>
+      <b>How it works</b> — pick a difficulty (Easy, Medium or Hardcore: harder = bigger payouts). Every lane is an independent draw by the server's secure random generator, decided before you start and never adjusted for any player.
+      Payouts are fixed per step. Bet ${rules.min_bet}–${rules.max_bet} ETB. Max win ${rules.max_payout} ETB per round, up to ${rules.max_steps} lanes. Cash out any time after your first lane; a car loses your bet.
+      <div style="margin-top:8px"><b>Step → payout</b><br>${rules.steps.map((t) => `${t.step} → ×${Number(t.multiplier).toFixed(2)}`).join("<br>")}</div>
     </div></div>
     <div class="card"><button class="btn secondary" id="g-back">⬅️ Back</button></div>`;
   bindBack();
@@ -1468,15 +1468,15 @@ function crScreen(rd, baseRules) {
   const bar = (inner) => `<div style="display:flex;gap:8px;align-items:stretch;margin-top:6px">${inner}</div>`;
   const setUI = (d) => {
     if (d.status === "active") {
-      info.innerHTML = `Bet ${d.bet} ETB · <b>×${Number(d.multiplier).toFixed(2)}</b> = <b>${d.potential_payout} ETB</b>` + (d.next_multiplier ? ` · Next ×${Number(d.next_multiplier).toFixed(2)} (${rules.safe_chance}%)` : "");
+      info.innerHTML = `Bet ${d.bet} ETB · <b>×${Number(d.multiplier).toFixed(2)}</b> = <b>${d.potential_payout} ETB</b>` + (d.next_multiplier ? ` · Next ×${Number(d.next_multiplier).toFixed(2)}` : "");
       ctr.innerHTML = bar(`<button class="btn" id="cr-cash" style="flex:1;margin:0;background:#ffc21a;color:#2a1c00;font-weight:800" ${d.step < 1 ? "disabled" : ""}>CASH OUT<br>${d.potential_payout} ETB</button>
         <button class="btn" id="cr-go" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`);
       document.getElementById("cr-go").addEventListener("click", doStep);
       document.getElementById("cr-cash").addEventListener("click", doCash);
     } else if (d.status === "idle") {
-      info.textContent = `Pick a difficulty and your bet, press GO, then keep crossing lanes. ${rules.label}: every lane is ${rules.safe_chance}% safe.`;
+      info.textContent = `Pick a difficulty and your bet, press GO, then keep crossing lanes. Mode: ${rules.label}.`;
       ctr.innerHTML = `<div class="field" style="margin-bottom:6px"><label>Bet (ETB ${rules.min_bet}–${rules.max_bet})</label><input id="cr-bet" type="number" inputmode="decimal" value="${window._crBet || 10}" /></div>
-        <div class="stake-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">${baseRules.difficulties.map((x) => `<button class="stake-btn" data-diff="${x.id}" style="${x.id === diff ? "outline:2px solid #35d07f" : ""}">${x.label}<br><small>${x.safe_chance}% safe</small></button>`).join("")}</div>
+        <div class="stake-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px">${baseRules.difficulties.map((x) => `<button class="stake-btn" data-diff="${x.id}" style="${x.id === diff ? "outline:2px solid #35d07f" : ""}">${x.label}</button>`).join("")}</div>
         <div class="stake-grid" style="margin-bottom:6px">${["5", "10", "50", "100", "500"].map((x) => `<button class="stake-btn" data-q="${x}">${x}</button>`).join("")}</div>
         ${bar(`<button class="btn" id="cr-start" style="flex:1;margin:0;background:#2fc057;font-weight:900;font-size:20px">GO</button>`)}`;
       ctr.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { document.getElementById("cr-bet").value = b.dataset.q; }));

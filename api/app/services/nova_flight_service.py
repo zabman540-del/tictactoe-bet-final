@@ -168,6 +168,14 @@ def _public(db: Session, user_id, row, now) -> dict:
     return out
 
 
+def tick(db: Session):
+    """Background: keep rounds rolling and settle auto cash-outs / lost bets even if nobody is watching."""
+    now = _now()
+    _ensure_round(db, now)
+    _sweep(db, now)
+    db.commit()
+
+
 def state(db: Session, user_id) -> dict:
     now = _now()
     row = _ensure_round(db, now)

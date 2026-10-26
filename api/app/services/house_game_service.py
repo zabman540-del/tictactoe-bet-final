@@ -267,12 +267,12 @@ def dice_roll(db: Session, user_id, bet, direction: str, target: int) -> dict:
 
 
 # ---------------- Chicken Road ----------------
-# Three difficulties. Each lane is an independent safe/trap draw with the chance shown to the
-# player. The whole path is drawn with the OS CSPRNG when the round starts and kept secret on
+# Three difficulties. Each lane is an independent safe/trap draw (the per-lane chance is not
+# shown in the app). The whole path is drawn with the OS CSPRNG when the round starts and kept secret on
 # the server. Payouts are fixed per step (STEP_TABLE) and every step's average return is < 100%.
 
 CHICKEN_MAX_STEPS = MAX_STEPS
-CHICKEN_SAFE = {"easy": 87, "medium": 78, "hardcore": 50}      # % chance each lane is safe
+CHICKEN_SAFE = {"easy": 60, "medium": 40, "hardcore": 20}      # % chance each lane is safe (server only)
 
 
 def chicken_multiplier(step: int, difficulty: str = "easy") -> Decimal:
@@ -284,14 +284,8 @@ def chicken_multiplier(step: int, difficulty: str = "easy") -> Decimal:
 def chicken_rules() -> dict:
     out = []
     for d in DIFFICULTIES:
-        p = Decimal(CHICKEN_SAFE[d]) / 100
-        steps = []
-        for k in range(1, CHICKEN_MAX_STEPS + 1):
-            m = STEP_TABLE[d][k - 1]
-            steps.append({"step": k, "multiplier": str(m),
-                          "survive_chance": str((p ** k * 100).quantize(Decimal("0.01"))),
-                          "return_percent": str((p ** k * m * 100).quantize(Decimal("0.1")))})
-        out.append({"id": d, "label": DIFF_LABEL[d], "safe_chance": CHICKEN_SAFE[d], "steps": steps})
+        steps = [{"step": k, "multiplier": str(STEP_TABLE[d][k - 1])} for k in range(1, CHICKEN_MAX_STEPS + 1)]
+        out.append({"id": d, "label": DIFF_LABEL[d], "steps": steps})
     return {"min_bet": str(MIN_BET), "max_bet": str(MAX_BET), "max_payout": str(MAX_PAYOUT),
             "max_steps": CHICKEN_MAX_STEPS, "difficulties": out}
 

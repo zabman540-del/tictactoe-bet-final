@@ -18,12 +18,12 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.core.rate_limit import limiter
 from app.routes import (
-    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games, rps, duels, app_extras,
+    users, deposits, withdrawals, matchmaking, matches, challenges, friends, webapp, games, rps, duels, flight, app_extras,
     admin_auth, admin_deposits, admin_withdrawals,
     admin_dashboard, admin_overview, admin_users, admin_live,
 )
 from app.core.database import SessionLocal
-from app.services import match_service, rps_service, duel_service
+from app.services import match_service, rps_service, duel_service, nova_flight_service
 from app.models.models import Match
 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +55,7 @@ app.include_router(webapp.router, tags=["webapp"])
 app.include_router(games.router, tags=["games"])
 app.include_router(rps.router, tags=["rps"])
 app.include_router(duels.router, tags=["duels"])
+app.include_router(flight.router, tags=["flight"])
 app.include_router(app_extras.router, tags=["app"])
 app.include_router(admin_auth.router, tags=["admin"])
 app.include_router(admin_deposits.router, tags=["admin"])
@@ -92,7 +93,7 @@ os.makedirs("/app/uploads", exist_ok=True)
 @app.get("/health")
 def health_check():
     """Simple endpoint to confirm the API is alive - useful for Docker health checks."""
-    return {"status": "ok", "build": "app-v4-0"}
+    return {"status": "ok", "build": "app-v4-1"}
 
 
 async def timeout_checker_loop():
@@ -118,6 +119,11 @@ async def timeout_checker_loop():
             except Exception:
                 db.rollback()
                 logger.exception("Error sweeping RPS timeouts")
+            try:
+                nova_flight_service.tick(db)
+            except Exception:
+                db.rollback()
+                logger.exception("Error ticking Nova Flight")
             try:
                 duel_service.sweep_timeouts(db)
             except Exception:
