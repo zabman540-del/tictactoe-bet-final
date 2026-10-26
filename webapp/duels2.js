@@ -4,16 +4,30 @@
 DUEL_VIEWS.race = {
   mount(root, s, ctx) {
     this.ctx = ctx; this.log = []; this.lane = 1; this.vis = 1; this.crashes = 0; this.judged = 0;
-    this.submitted = false; this.flash = 0; this.lastT = -1000; this.sent = 0; this.trackKey = null;
+    this.submitted = false; this.flash = 0; this.lastT = -1000; this.sent = 0; this.trackKey = null; this.hitAt = {}; this.r3 = null;
     root.innerHTML = `<style>
-      .rc-cv{display:block;margin:6px auto;width:100%;max-width:340px;border-radius:12px;background:#0b1410;touch-action:none}
+      .rc-wrap{position:relative;width:100%;max-width:340px;margin:6px auto;aspect-ratio:340/420;touch-action:none;border-radius:12px;overflow:hidden;background:#0b1410}
+      .rc-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
       .rc-btns{display:flex;gap:10px;margin:8px 0}.rc-btns button{flex:1;font-size:30px;padding:14px}
     </style>
     <div id="rc-top" class="center-note"></div>
-    <canvas class="rc-cv" id="rc-cv" width="340" height="420"></canvas>
+    <div class="rc-wrap" id="rc-wrap"><canvas id="rc-gl"></canvas><canvas id="rc-cv" width="340" height="420"></canvas></div>
     <div id="rc-ctl"></div>`;
     this.cv = document.getElementById("rc-cv");
-    const area = this.cv;
+    const gl = document.getElementById("rc-gl");
+    try {
+      if (typeof Race3D !== "undefined" && !/[?&]flat=1/.test(location.search)) {
+        this.r3 = Race3D.create(gl);
+        if (this.r3) {
+          let dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+          this.r3.resize(340, 420, dpr);
+          this.r3.onLow = () => this.r3 && this.r3.resize(340, 420, 1);
+          this.r3.onLost = () => { this.r3 = null; gl.style.display = "none"; };
+        }
+      }
+    } catch (e) { this.r3 = null; }
+    if (!this.r3) gl.style.display = "none";
+    const area = document.getElementById("rc-wrap");
     area.addEventListener("pointerdown", (e) => {
       const r = area.getBoundingClientRect();
       this.steer((e.clientX - r.left) < r.width / 2 ? -1 : 1);
@@ -53,7 +67,11 @@ DUEL_VIEWS.race = {
       return;
     }
     if (g.phase === "racing") {
-      if (this.trackKey !== g.start_at) { this.trackKey = g.start_at; this.log = []; this.lane = 1; this.vis = 1; this.crashes = 0; this.judged = 0; this.submitted = !!g.my_result; }
+      if (this.trackKey !== g.start_at) {
+        this.trackKey = g.start_at; this.log = []; this.lane = 1; this.vis = 1; this.crashes = 0; this.judged = 0; this.hitAt = {};
+        this.submitted = !!g.my_result;
+        if (this.r3) this.r3.setTrack(g.track, g.length);
+      }
       if (!ctl.dataset.m || ctl.dataset.m !== "drive") {
         ctl.dataset.m = "drive";
         ctl.innerHTML = `<div class="rc-btns"><button class="btn secondary" id="rc-l">◀</button><button class="btn secondary" id="rc-r">▶</button></div>
@@ -71,76 +89,93 @@ DUEL_VIEWS.race = {
   },
   paint() {
     const s = this.ctx.s; if (!s || !s.g) return;
-    const g = s.g, c = this.cv.getContext("2d"), W = 340, H = 420;
+    const g = s.g, c = this.cv.getContext("2d"), W = 340, H = 420, r3 = this.r3 && this.r3.ok ? this.r3 : null;
     c.clearRect(0, 0, W, H);
-    if (g.phase !== "racing") {
-      c.fillStyle = "#0e1c15"; c.fillRect(0, 0, W, H); c.font = "64px sans-serif"; c.textAlign = "center"; c.fillText("🏎️", W / 2, H / 2 + 20);
-      return;
-    }
-    const t = this.t(), ms = Math.max(0, Math.min(t, g.base * 1000)), pos = g.speed * ms / 1000;
+    const racing = g.phase === "racing";
+    const t = racing ? this.t() : -1e6;
+    const ms = Math.max(0, Math.min(t, g.base * 1000)), pos = racing ? g.speed * ms / 1000 : 0;
     // crash judging — identical rule to the server
-    const tr = g.track;
-    while (this.judged < tr.length) {
-      const [d, ln] = tr[this.judged];
-      const t1 = (d + 14) / g.speed * 1000;
-      if (t < t1) break;
-      const t0 = (d - 14) / g.speed * 1000, tm = d / g.speed * 1000;
-      const laneAt = (x) => { let l = 1; for (const e of this.log) { if (e[0] <= x) l = e[1]; else break; } return l; };
-      const lanes = new Set([laneAt(t0), laneAt(tm), laneAt(t1)]);
-      this.log.forEach((e) => { if (e[0] > t0 && e[0] < t1) lanes.add(e[1]); });
-      if (lanes.has(ln)) { this.crashes++; this.flash = Date.now(); try { tg.HapticFeedback.notificationOccurred("error"); } catch (e) {} }
-      this.judged++;
-    }
-    this.vis += (this.lane - this.vis) * 0.28;
-    const HZ = 70, CARY = 350;
-    const proj = (z) => { const k = 1 / (1 + z / 320); return { y: HZ + (CARY - HZ) * k, k }; };
-    // sky + road
-    c.fillStyle = "#123524"; c.fillRect(0, 0, W, H);
-    c.fillStyle = "#1c2a24"; c.fillRect(0, 0, W, HZ);
-    const road = (z) => { const p = proj(z); return { y: p.y, l: W / 2 - 135 * p.k, r: W / 2 + 135 * p.k, k: p.k }; };
-    const near = road(0), far = road(900);
-    c.fillStyle = "#2b2f36"; c.beginPath(); c.moveTo(far.l, far.y); c.lineTo(far.r, far.y); c.lineTo(W / 2 + 135 * 1.4, H); c.lineTo(W / 2 - 135 * 1.4, H); c.fill();
-    // lane lines moving
-    c.strokeStyle = "#fff"; c.lineWidth = 2;
-    for (let k = -1; k <= 1; k += 2) {
-      for (let z0 = -((pos) % 80); z0 < 900; z0 += 80) {
-        const a = proj(Math.max(0, z0)), b = proj(Math.max(0, z0 + 40));
-        c.lineWidth = 2 * a.k + 1;
-        c.beginPath(); c.moveTo(W / 2 + k * 45 * a.k, a.y); c.lineTo(W / 2 + k * 45 * b.k, b.y); c.stroke();
+    if (racing) {
+      const tr = g.track;
+      while (this.judged < tr.length) {
+        const [d, ln] = tr[this.judged];
+        const t1 = (d + 14) / g.speed * 1000;
+        if (t < t1) break;
+        const t0 = (d - 14) / g.speed * 1000, tm = d / g.speed * 1000;
+        const laneAt = (x) => { let l = 1; for (const e of this.log) { if (e[0] <= x) l = e[1]; else break; } return l; };
+        const lanes = new Set([laneAt(t0), laneAt(tm), laneAt(t1)]);
+        this.log.forEach((e) => { if (e[0] > t0 && e[0] < t1) lanes.add(e[1]); });
+        if (lanes.has(ln)) { this.crashes++; this.flash = Date.now(); this.hitAt[this.judged] = Date.now(); try { tg.HapticFeedback.notificationOccurred("error"); } catch (e) {} }
+        this.judged++;
       }
     }
-    // finish line
-    const fz = g.length - pos;
-    if (fz > -20 && fz < 900) { const p = proj(Math.max(0, fz)); c.fillStyle = "#fff"; c.fillRect(W / 2 - 135 * p.k, p.y - 3, 270 * p.k, 6 * p.k + 2); }
-    // obstacles (far -> near)
-    for (let i = tr.length - 1; i >= 0; i--) {
-      const z = tr[i][0] - pos; if (z < -30 || z > 900) continue;
-      const p = proj(Math.max(0, z)), x = W / 2 + (tr[i][1] - 1) * 90 * p.k, w = 56 * p.k, h = 40 * p.k;
-      c.fillStyle = "#e8433f"; c.fillRect(x - w / 2, p.y - h, w, h);
-      c.fillStyle = "#fff"; c.fillRect(x - w / 2, p.y - h * 0.6, w, h * 0.2);
+    this.vis += (this.lane - this.vis) * 0.22;
+    const since = (Date.now() - this.flash) / 1000;
+    if (r3) {
+      const hits = {}; for (const k in this.hitAt) { const a = (Date.now() - this.hitAt[k]) / 1000; if (a < 1.6) hits[k] = a; }
+      const over = racing && t > g.base * 1000 ? Math.min((t - g.base * 1000) / 1000, 2.5) * g.speed * 0.35 : 0;
+      const z = pos + over;
+      r3.render({
+        z, x: this.vis, yaw: Math.max(-0.22, Math.min(0.22, (this.lane - this.vis) * 0.3)),
+        bounce: since < 0.5 ? 0.07 * Math.sin(since * 40) * (1 - since / 0.5) : 0,
+        shake: since < 0.45 ? 1 - since / 0.45 : 0, time: performance.now() / 1000,
+        hits, speed: racing && t > 0 && t < g.base * 1000 + 300 ? 1 : 0.15, wheel: z * 0.25 / 0.345,
+      });
+    } else {
+      this.paint2D(c, g, t, ms, pos, W, H);
     }
-    // my car
-    const cx = W / 2 + (this.vis - 1) * 90, shake = Date.now() - this.flash < 300 ? (Math.random() - 0.5) * 10 : 0;
-    c.save(); c.translate(cx + shake, CARY);
-    c.fillStyle = "#2fa86a"; c.fillRect(-20, -52, 40, 52);
-    c.fillStyle = "#bfe8d0"; c.fillRect(-14, -44, 28, 14);
-    c.fillStyle = "#111"; c.fillRect(-24, -46, 6, 14); c.fillRect(18, -46, 6, 14); c.fillRect(-24, -12, 6, 14); c.fillRect(18, -12, 6, 14);
-    c.restore();
-    if (Date.now() - this.flash < 500) { c.fillStyle = "rgba(255,40,40,.28)"; c.fillRect(0, 0, W, H); c.fillStyle = "#fff"; c.font = "bold 24px sans-serif"; c.textAlign = "center"; c.fillText("CRASH +" + g.penalty + "s", W / 2, 120); }
-    // HUD
+    this.hud(c, g, racing, t, ms, pos, W, H, !!r3, since);
+    // finished -> submit
+    if (racing && !this.submitted && t >= g.base * 1000 + 300 && s.status === "playing" && Date.now() - this.sent > 1500) {
+      this.sent = Date.now();
+      this.ctx.post("move", { log: this.log }).then((r) => { if (r) this.submitted = true; });
+    }
+  },
+  hud(c, g, racing, t, ms, pos, W, H, gl, since) {
+    if (!racing) {
+      if (gl) { c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(0, H - 54, W, 54); c.fillStyle = "#fff"; c.font = "bold 16px sans-serif"; c.textAlign = "center"; c.fillText("Waiting for both players to be ready…", W / 2, H - 22); }
+      else { c.fillStyle = "#0e1c15"; c.fillRect(0, 0, W, H); c.font = "64px sans-serif"; c.textAlign = "center"; c.fillText("🏎️", W / 2, H / 2 + 20); }
+      return;
+    }
+    if (gl) {   // speed streaks + vignette
+      const sp = t > 0 && t < g.base * 1000 ? 1 : 0;
+      if (sp) { c.strokeStyle = "rgba(255,255,255,.10)"; c.lineWidth = 1.2; for (let i = 0; i < 14; i++) { const a = (i / 14) * 6.28 + (performance.now() / 4000), r0 = 150 + 35 * Math.sin(i * 7), r1 = r0 + 55 + 30 * Math.abs(Math.sin(performance.now() / 90 + i)); c.beginPath(); c.moveTo(W / 2 + Math.cos(a) * r0, H * 0.55 + Math.sin(a) * r0 * 1.1); c.lineTo(W / 2 + Math.cos(a) * r1, H * 0.55 + Math.sin(a) * r1 * 1.1); c.stroke(); } }
+      const vg = c.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.78); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.45)");
+      c.fillStyle = vg; c.fillRect(0, 0, W, H);
+    }
+    if (since < 0.5) { c.fillStyle = `rgba(255,40,40,${0.28 * (1 - since / 0.5)})`; c.fillRect(0, 0, W, H); c.fillStyle = "#fff"; c.font = "bold 24px sans-serif"; c.textAlign = "center"; c.strokeStyle = "#000"; c.lineWidth = 4; c.strokeText("CRASH +" + g.penalty + "s", W / 2, 120); c.fillText("CRASH +" + g.penalty + "s", W / 2, 120); }
     c.fillStyle = "rgba(0,0,0,.5)"; c.fillRect(0, 0, W, 34);
     c.fillStyle = "#fff"; c.font = "bold 15px sans-serif"; c.textAlign = "left";
     const el = Math.max(0, ms / 1000);
     c.fillText(`⏱ ${(el + this.crashes * g.penalty).toFixed(1)}s`, 10, 22);
     c.textAlign = "right"; c.fillText(`💥 ${this.crashes}`, W - 10, 22);
     c.textAlign = "center"; c.fillText(`${Math.min(100, Math.round(pos / g.length * 100))}%`, W / 2, 22);
-    if (t < 0) { c.fillStyle = "rgba(0,0,0,.45)"; c.fillRect(0, 0, W, H); c.fillStyle = "#fff"; c.font = "bold 90px sans-serif"; c.textAlign = "center"; c.fillText(String(Math.ceil(-t / 1000)), W / 2, H / 2 + 30); }
-    else if (t < 700) { c.fillStyle = "#34d17a"; c.font = "bold 70px sans-serif"; c.textAlign = "center"; c.fillText("GO!", W / 2, H / 2); }
-    // finished -> submit
-    if (!this.submitted && t >= g.base * 1000 + 300 && s.status === "playing" && Date.now() - this.sent > 1500) {
-      this.sent = Date.now();
-      this.ctx.post("move", { log: this.log }).then((r) => { if (r) this.submitted = true; });
+    if (t < 0) { c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(0, 34, W, H); c.fillStyle = "#fff"; c.font = "bold 90px sans-serif"; c.textAlign = "center"; c.fillText(String(Math.ceil(-t / 1000)), W / 2, H / 2 + 30); }
+    else if (t < 700) { c.fillStyle = "#34d17a"; c.font = "bold 70px sans-serif"; c.textAlign = "center"; c.strokeStyle = "#000"; c.lineWidth = 5; c.strokeText("GO!", W / 2, H / 2); c.fillText("GO!", W / 2, H / 2); }
+  },
+  paint2D(c, g, t, ms, pos, W, H) {   // flat fallback when WebGL isn't available
+    if (g.phase !== "racing") return;
+    const tr = g.track, HZ = 70, CARY = 350;
+    const proj = (z) => { const k = 1 / (1 + z / 320); return { y: HZ + (CARY - HZ) * k, k }; };
+    c.fillStyle = "#123524"; c.fillRect(0, 0, W, H);
+    c.fillStyle = "#1c2a24"; c.fillRect(0, 0, W, HZ);
+    const far = { y: HZ };
+    c.fillStyle = "#2b2f36"; c.beginPath(); c.moveTo(W / 2 - 135 * 0.26, far.y); c.lineTo(W / 2 + 135 * 0.26, far.y); c.lineTo(W / 2 + 135 * 1.4, H); c.lineTo(W / 2 - 135 * 1.4, H); c.fill();
+    c.strokeStyle = "#fff";
+    for (let k = -1; k <= 1; k += 2) for (let z0 = -((pos) % 80); z0 < 900; z0 += 80) {
+      const a = proj(Math.max(0, z0)), b = proj(Math.max(0, z0 + 40)); c.lineWidth = 2 * a.k + 1;
+      c.beginPath(); c.moveTo(W / 2 + k * 45 * a.k, a.y); c.lineTo(W / 2 + k * 45 * b.k, b.y); c.stroke();
     }
+    for (let i = tr.length - 1; i >= 0; i--) {
+      const z = tr[i][0] - pos; if (z < -30 || z > 900) continue;
+      const p = proj(Math.max(0, z)), x = W / 2 + (tr[i][1] - 1) * 90 * p.k, w = 56 * p.k, h = 40 * p.k;
+      c.fillStyle = "#e8433f"; c.fillRect(x - w / 2, p.y - h, w, h); c.fillStyle = "#fff"; c.fillRect(x - w / 2, p.y - h * 0.6, w, h * 0.2);
+    }
+    const cx = W / 2 + (this.vis - 1) * 90;
+    c.save(); c.translate(cx, CARY);
+    c.fillStyle = "#2fa86a"; c.fillRect(-20, -52, 40, 52); c.fillStyle = "#bfe8d0"; c.fillRect(-14, -44, 28, 14);
+    c.fillStyle = "#111"; c.fillRect(-24, -46, 6, 14); c.fillRect(18, -46, 6, 14); c.fillRect(-24, -12, 6, 14); c.fillRect(18, -12, 6, 14);
+    c.restore();
   },
 };
 
