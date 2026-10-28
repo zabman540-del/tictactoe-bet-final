@@ -8,6 +8,7 @@ file we've built, and starts listening for messages.
 
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -20,6 +21,28 @@ from handlers import start, play, game, deposit, withdraw, info, challenge, chec
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tictactoe-bot")
+
+
+MAINT_TEXT = ("🛠️ <b>Nova Bet is under maintenance</b>\n\n"
+              "We are adding new games. Please check back soon!")
+
+
+def _maintenance_on() -> bool:
+    return os.getenv("MAINTENANCE", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+async def maintenance_mw(handler, event, data):
+    """When MAINTENANCE=1 every message/button gets the maintenance notice instead."""
+    if not _maintenance_on():
+        return await handler(event, data)
+    try:
+        if getattr(event, "callback_query", None):
+            await event.callback_query.answer("🛠️ Under maintenance — new games coming soon!", show_alert=True)
+        elif getattr(event, "message", None):
+            await event.message.answer(MAINT_TEXT)
+    except Exception:
+        logger.exception("maintenance reply failed")
+    return None
 
 
 async def main():
@@ -45,6 +68,7 @@ async def main():
     dp["api"] = api
     dp["settings"] = settings
 
+    dp.update.outer_middleware(maintenance_mw)
     dp.include_router(start.router)
     dp.include_router(play.router)
     dp.include_router(challenge.router)

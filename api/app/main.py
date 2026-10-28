@@ -44,6 +44,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------- maintenance mode
+# Set MAINTENANCE=1 in Railway (API service) to close the app for players.
+# Admin panel, /admin/* and /health stay open. Set MAINTENANCE=0 (or delete it) to reopen.
+_MAINT_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nova Bet</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b1020;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:24px}
+.c{max-width:340px}.i{font-size:64px}h1{font-size:22px;margin:14px 0 8px}p{color:#9aa6c4;line-height:1.5;margin:0}</style></head>
+<body><div class="c"><div class="i">🛠️</div><h1>Under maintenance</h1><p>We are adding new games.<br>Please check back soon.</p></div></body></html>"""
+_MAINT_OPEN = ("/admin", "/health", "/docs", "/openapi.json", "/redoc")
+
+
+@app.middleware("http")
+async def maintenance_gate(request, call_next):
+    if os.getenv("MAINTENANCE", "0").strip().lower() in ("1", "true", "yes", "on"):
+        path = request.url.path
+        if not path.startswith(_MAINT_OPEN) and request.method != "OPTIONS":
+            from fastapi.responses import HTMLResponse, JSONResponse
+            if path.startswith(("/app-ui", "/checkers-app", "/tictactoe-app")) and request.method == "GET":
+                return HTMLResponse(_MAINT_HTML)
+            return JSONResponse({"detail": "The app is under maintenance. New games are coming — check back soon."}, status_code=503)
+    return await call_next(request)
+
+
 app.include_router(users.router, tags=["users"])
 app.include_router(deposits.router, tags=["deposits"])
 app.include_router(withdrawals.router, tags=["withdrawals"])
